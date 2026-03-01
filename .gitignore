@@ -1,0 +1,41 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+dist-ssr/
+src-tauri/target/
+src-tauri/Cargo.lock.bak
+
+# Tauri generated icons cache
+src-tauri/gen/
+
+# Env / secrets
+.env
+.env.local
+*.pem
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Editor / OS
+.claude/
+CLAUDE.md
+.cursor/
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Test / coverage
+coverage/
+
+# Misc local scratch
+*.local

@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "composite": true,
+    "outDir": "./node_modules/.ts-build-cache/node",
+    "tsBuildInfoFile": "./node_modules/.ts-build-cache/node.tsbuildinfo",
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "isolatedModules": true,
+    "strict": true
+  },
+  "include": ["vite.config.ts", "vitest.config.ts"]
+}
