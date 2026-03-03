@@ -22,11 +22,41 @@
         "fullscreen": false,
         "center": true,
         "visible": true,
+        "skipTaskbar": true,
         "decorations": true
       }
     ],
     "security": {
       "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "publisher": "Muhammad Jawad Hassan",
+    "category": "Utility",
+    "shortDescription": "Keep your computer awake and manage activity sessions.",
+    "longDescription": "Awake is a minimal, local-first desktop utility that keeps your computer awake for a configured session, monitors inactivity, and can optionally simulate desktop activity. No account, no cloud, no telemetry.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "macOS": {
+      "minimumSystemVersion": "11.0",
+      "entitlements": null
+    },
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      }
+    },
+    "linux": {
+      "deb": {
+        "depends": []
+      }
     }
   }
 }
