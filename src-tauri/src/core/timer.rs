@@ -30,6 +30,31 @@ impl SessionTimer {
     pub fn is_expired(&self, now: Instant) -> bool {
         self.remaining(now) == Duration::ZERO
     }
+
+    pub fn extend(&mut self, extra: Duration) {
+        self.duration += extra;
+    }
+}
+
+/// Rejects zero-length sessions and sessions longer than 24 hours.
+pub fn validate_duration(duration: Duration) -> Result<(), DurationError> {
+    const MAX_DURATION: Duration = Duration::from_secs(24 * 60 * 60);
+
+    if duration.is_zero() {
+        Err(DurationError::TooShort)
+    } else if duration > MAX_DURATION {
+        Err(DurationError::TooLong { max: MAX_DURATION })
+    } else {
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Copy, thiserror::Error, PartialEq, Eq)]
+pub enum DurationError {
+    #[error("session duration must be greater than zero")]
+    TooShort,
+    #[error("session duration must not exceed {max:?}")]
+    TooLong { max: Duration },
 }
 
 #[cfg(test)]
@@ -66,5 +91,32 @@ mod tests {
         let timer = SessionTimer::new(start, Duration::from_secs(5));
         assert!(timer.is_expired(start + Duration::from_secs(5)));
         assert!(!timer.is_expired(start + Duration::from_millis(4999)));
+    }
+
+    #[test]
+    fn rejects_zero_duration() {
+        assert_eq!(
+            validate_duration(Duration::ZERO),
+            Err(DurationError::TooShort)
+        );
+    }
+
+    #[test]
+    fn rejects_excessive_duration() {
+        let too_long = Duration::from_secs(25 * 60 * 60);
+        assert!(validate_duration(too_long).is_err());
+    }
+
+    #[test]
+    fn accepts_reasonable_duration() {
+        assert!(validate_duration(Duration::from_secs(6 * 60 * 60)).is_ok());
+    }
+
+    #[test]
+    fn extend_pushes_remaining_time_out() {
+        let start = Instant::now();
+        let mut timer = SessionTimer::new(start, Duration::from_secs(10));
+        timer.extend(Duration::from_secs(20));
+        assert_eq!(timer.remaining(start), Duration::from_secs(30));
     }
 }
