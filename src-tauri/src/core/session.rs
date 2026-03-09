@@ -99,6 +99,20 @@ impl Session {
         Ok(())
     }
 
+    /// Adds time to a running session, capped at the same 24h sanity bound as a fresh session.
+    pub fn extend(&mut self, extra: Duration) -> Result<(), SessionError> {
+        if self.state != SessionState::Active {
+            return Err(SessionError::NotActive);
+        }
+        let new_duration = self.config.duration + extra;
+        validate_duration(new_duration).map_err(SessionError::InvalidDuration)?;
+        self.config.duration = new_duration;
+        if let Some(timer) = self.timer.as_mut() {
+            timer.extend(extra);
+        }
+        Ok(())
+    }
+
     pub fn stop(&mut self) -> Result<(), SessionError> {
         if self.state != SessionState::Active {
             return Err(SessionError::NotActive);
@@ -240,5 +254,41 @@ mod tests {
         session.start(Instant::now()).unwrap();
         session.stop().unwrap();
         assert_eq!(session.stop(), Err(SessionError::NotActive));
+    }
+
+    #[test]
+    fn extend_pushes_remaining_time_and_duration_out() {
+        let config = SessionConfig {
+            duration: Duration::from_secs(10),
+            ..valid_config()
+        };
+        let mut session = Session::idle(config);
+        let start = Instant::now();
+        session.start(start).unwrap();
+
+        session.extend(Duration::from_secs(20)).unwrap();
+
+        assert_eq!(session.remaining(start), Duration::from_secs(30));
+        assert_eq!(session.config().duration, Duration::from_secs(30));
+    }
+
+    #[test]
+    fn cannot_extend_a_session_that_is_not_active() {
+        let mut session = Session::idle(valid_config());
+        assert_eq!(
+            session.extend(Duration::from_secs(10)),
+            Err(SessionError::NotActive)
+        );
+    }
+
+    #[test]
+    fn extend_rejects_pushing_past_the_24h_cap() {
+        let config = SessionConfig {
+            duration: Duration::from_secs(23 * 60 * 60),
+            ..valid_config()
+        };
+        let mut session = Session::idle(config);
+        session.start(Instant::now()).unwrap();
+        assert!(session.extend(Duration::from_secs(2 * 60 * 60)).is_err());
     }
 }
