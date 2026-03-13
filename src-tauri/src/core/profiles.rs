@@ -151,6 +151,70 @@ pub enum ProfileError {
     EmptyKeyboardKey,
 }
 
+/// The three profiles that ship built in.
+pub fn built_in_profiles() -> Vec<ActivityProfile> {
+    vec![
+        ActivityProfile {
+            id: "developer".to_string(),
+            name: "Developer".to_string(),
+            inactivity_threshold: Duration::from_secs(5 * 60),
+            min_delay: Duration::from_secs(30),
+            max_delay: Duration::from_secs(180),
+            mouse: MouseConfig {
+                enabled: true,
+                movement: true,
+                ..MouseConfig::default()
+            },
+            keyboard: KeyboardConfig {
+                enabled: false,
+                ..KeyboardConfig::default()
+            },
+            gestures: GestureConfig::default(),
+            safety: SafetySettings::default(),
+            built_in: true,
+        },
+        ActivityProfile {
+            id: "presentation".to_string(),
+            name: "Presentation".to_string(),
+            inactivity_threshold: Duration::from_secs(2 * 60),
+            min_delay: Duration::from_secs(60),
+            max_delay: Duration::from_secs(240),
+            mouse: MouseConfig {
+                enabled: true,
+                movement: true,
+                randomize: false,
+                ..MouseConfig::default()
+            },
+            keyboard: KeyboardConfig::default(),
+            gestures: GestureConfig::default(),
+            safety: SafetySettings {
+                max_actions_per_minute: 3,
+                ..SafetySettings::default()
+            },
+            built_in: true,
+        },
+        ActivityProfile {
+            id: "testing".to_string(),
+            name: "Testing".to_string(),
+            inactivity_threshold: Duration::from_secs(60),
+            min_delay: Duration::from_secs(10),
+            max_delay: Duration::from_secs(30),
+            mouse: MouseConfig::default(),
+            keyboard: KeyboardConfig {
+                enabled: true,
+                ..KeyboardConfig::default()
+            },
+            gestures: GestureConfig {
+                horizontal: true,
+                vertical: true,
+                custom: None,
+            },
+            safety: SafetySettings::default(),
+            built_in: true,
+        },
+    ]
+}
+
 mod duration_secs {
     use std::time::Duration;
 
