@@ -5,6 +5,8 @@ mod input;
 
 #[cfg(target_os = "macos")]
 pub mod macos;
+#[cfg(target_os = "windows")]
+pub mod windows;
 
 use std::sync::Arc;
 
@@ -28,8 +30,12 @@ pub fn current() -> Platform {
     {
         macos::build()
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
     {
-        compile_error!("Awake only supports macOS so far");
+        windows::build()
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        compile_error!("Awake only supports macOS and Windows so far");
     }
 }
