@@ -5,6 +5,8 @@ use std::time::Duration;
 
 use crate::core::ports::{PlatformError, PowerLease, PowerManager};
 
+const EXPIRY_MARGIN: Duration = Duration::from_secs(30);
+
 pub struct MacOsPowerManager;
 
 impl PowerManager for MacOsPowerManager {
@@ -12,7 +14,7 @@ impl PowerManager for MacOsPowerManager {
         &self,
         keep_system_awake: bool,
         keep_display_awake: bool,
-        _max_duration: Duration,
+        max_duration: Duration,
     ) -> Result<Box<dyn PowerLease>, PlatformError> {
         let mut command = Command::new("/usr/bin/caffeinate");
         if keep_system_awake {
@@ -21,6 +23,9 @@ impl PowerManager for MacOsPowerManager {
         if keep_display_awake {
             command.arg("-d");
         }
+        command
+            .arg("-t")
+            .arg((max_duration + EXPIRY_MARGIN).as_secs().to_string());
         let child = command.spawn().map_err(|e| {
             PlatformError::OperationFailed(format!("failed to launch caffeinate: {e}"))
         })?;

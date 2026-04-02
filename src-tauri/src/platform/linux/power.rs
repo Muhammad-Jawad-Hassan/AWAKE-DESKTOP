@@ -5,6 +5,8 @@ use std::time::Duration;
 
 use crate::core::ports::{PlatformError, PowerLease, PowerManager};
 
+const EXPIRY_MARGIN: Duration = Duration::from_secs(30);
+
 pub struct LinuxPowerManager;
 
 impl PowerManager for LinuxPowerManager {
@@ -19,7 +21,7 @@ impl PowerManager for LinuxPowerManager {
                 "systemd-inhibit not found".into(),
             ));
         }
-        let sleep_secs = max_duration.as_secs().to_string();
+        let sleep_secs = (max_duration + EXPIRY_MARGIN).as_secs().to_string();
         let child = Command::new("systemd-inhibit")
             .args([
                 "--what=idle:sleep",
