@@ -43,6 +43,9 @@ windows = { version = "0.58", features = [
     "Win32_UI_WindowsAndMessaging",
 ] }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+which = "8"
+
 [profile.release]
 # Not panic = "abort": unwinding lets one task die without taking the tray app down.
 codegen-units = 1
