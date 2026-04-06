@@ -2,7 +2,7 @@
 
 use std::fs;
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -78,12 +78,23 @@ impl AppConfig {
         }
     }
 
+    /// Writes `dir/config.json` atomically via a temp file + rename.
     pub fn save(&self, dir: &Path) -> Result<(), ConfigError> {
         fs::create_dir_all(dir)?;
+        let path = dir.join(CONFIG_FILE_NAME);
+        let tmp_path = tmp_path_for(&path);
+
         let contents = serde_json::to_string_pretty(self)?;
-        fs::write(dir.join(CONFIG_FILE_NAME), contents)?;
+        fs::write(&tmp_path, contents)?;
+        fs::rename(&tmp_path, &path)?;
         Ok(())
     }
+}
+
+fn tmp_path_for(path: &Path) -> PathBuf {
+    let mut tmp = path.to_path_buf();
+    tmp.set_extension("json.tmp");
+    tmp
 }
 
 #[cfg(test)]
@@ -118,6 +129,14 @@ mod tests {
 
         let result = AppConfig::load(dir.path());
         assert!(matches!(result, Err(ConfigError::Corrupt(_))));
+    }
+
+    #[test]
+    fn save_does_not_leave_a_temp_file_behind() {
+        let dir = tempdir().unwrap();
+        AppConfig::default().save(dir.path()).unwrap();
+        let tmp = dir.path().join("config.json.tmp");
+        assert!(!tmp.exists());
     }
 
     #[test]
