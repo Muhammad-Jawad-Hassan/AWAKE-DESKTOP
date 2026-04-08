@@ -1,4 +1,5 @@
-//! Local configuration persistence: one JSON file in the OS app-config directory.
+//! Local configuration persistence: a single JSON file written atomically
+//! to the OS-standard app-config directory.
 
 use std::fs;
 use std::io;
@@ -6,7 +7,10 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use super::history::HistoryEntry;
 use super::profiles::{built_in_profiles, ActivityProfile};
+use super::session::SessionConfig;
+use super::templates::SessionTemplate;
 
 pub const CONFIG_FILE_NAME: &str = "config.json";
 
@@ -20,6 +24,8 @@ pub struct AppSettings {
     pub notify_on_session_end: bool,
     /// Global shortcut that immediately disables automated input.
     pub emergency_stop_shortcut: String,
+    /// Opt-in local activity statistics. Off by default.
+    pub record_activity_statistics: bool,
 }
 
 impl Default for AppSettings {
@@ -31,6 +37,7 @@ impl Default for AppSettings {
             exclude_from_screen_capture: false,
             notify_on_session_end: true,
             emergency_stop_shortcut: "CommandOrControl+Shift+Escape".to_string(),
+            record_activity_statistics: false,
         }
     }
 }
@@ -43,6 +50,12 @@ pub struct AppConfig {
     pub settings: AppSettings,
     #[serde(default = "built_in_profiles")]
     pub profiles: Vec<ActivityProfile>,
+    #[serde(default)]
+    pub last_session_config: Option<SessionConfig>,
+    #[serde(default)]
+    pub templates: Vec<SessionTemplate>,
+    #[serde(default)]
+    pub history: Vec<HistoryEntry>,
 }
 
 fn current_schema_version() -> u32 {
@@ -55,6 +68,9 @@ impl Default for AppConfig {
             schema_version: current_schema_version(),
             settings: AppSettings::default(),
             profiles: built_in_profiles(),
+            last_session_config: None,
+            templates: Vec::new(),
+            history: Vec::new(),
         }
     }
 }
@@ -114,6 +130,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let mut config = AppConfig::default();
         config.settings.start_minimized = true;
+        config.settings.record_activity_statistics = true;
 
         config.save(dir.path()).unwrap();
         let loaded = AppConfig::load(dir.path()).unwrap();

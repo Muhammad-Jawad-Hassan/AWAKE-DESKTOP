@@ -9,6 +9,7 @@ pub mod ports;
 pub mod profiles;
 pub mod session;
 pub mod stats;
+pub mod templates;
 pub mod timer;
 
 pub use activity::{
@@ -21,3 +22,4 @@ pub use ports::{PlatformCapabilities, PlatformError, PowerLease, WindowHandle};
 pub use profiles::{ActivityProfile, ClickKind, MouseButton};
 pub use session::{Session, SessionConfig, SessionError, SessionState};
 pub use stats::SessionStats;
+pub use templates::SessionTemplate;
