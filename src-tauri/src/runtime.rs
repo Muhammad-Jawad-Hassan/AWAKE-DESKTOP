@@ -159,6 +159,39 @@ impl AppState {
             .map_err(|e| e.to_string())
     }
 
+    pub async fn templates(&self) -> Vec<SessionTemplate> {
+        self.inner.lock().await.config.templates.clone()
+    }
+
+    pub async fn save_template(&self, template: SessionTemplate) -> Result<(), String> {
+        template.validate().map_err(|e| e.to_string())?;
+        template.config.validate().map_err(|e| e.to_string())?;
+        let mut inner = self.inner.lock().await;
+        if let Some(existing) = inner
+            .config
+            .templates
+            .iter_mut()
+            .find(|t| t.id == template.id)
+        {
+            *existing = template;
+        } else {
+            inner.config.templates.push(template);
+        }
+        inner
+            .config
+            .save(&self.config_dir)
+            .map_err(|e| e.to_string())
+    }
+
+    pub async fn delete_template(&self, id: String) -> Result<(), String> {
+        let mut inner = self.inner.lock().await;
+        inner.config.templates.retain(|t| t.id != id);
+        inner
+            .config
+            .save(&self.config_dir)
+            .map_err(|e| e.to_string())
+    }
+
     pub fn capabilities(&self) -> PlatformCapabilities {
         self.platform.capabilities.clone()
     }
@@ -272,6 +305,19 @@ impl AppState {
         inner.activity_paused = paused;
         inner.activity_next_fire = None;
         build_snapshot(&inner)
+    }
+
+    pub async fn session_history(&self) -> Vec<HistoryEntry> {
+        self.inner.lock().await.config.history.clone()
+    }
+
+    pub async fn clear_session_history(&self) -> Result<(), String> {
+        let mut inner = self.inner.lock().await;
+        inner.config.history.clear();
+        inner
+            .config
+            .save(&self.config_dir)
+            .map_err(|e| e.to_string())
     }
 }
 
