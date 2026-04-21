@@ -24,6 +24,25 @@ const RATE_LIMIT_WINDOW: Duration = Duration::from_secs(60);
 /// Pause between each action in a Test Activity run, long enough to actually see each one.
 const TEST_ACTIVITY_GAP: Duration = Duration::from_millis(2500);
 
+/// One step of a Test Activity run, broadcast as it starts so the profile
+/// editor can show which action is currently firing.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TestActivityProgress {
+    pub kind: ActivityKind,
+    pub index: u32,
+    pub total: u32,
+}
+
+/// The outcome of one action in a Test Activity run. `performed` is `false`
+/// when a safety check skipped it, so a skip never reads as a success.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TestActivityResult {
+    pub kind: ActivityKind,
+    pub performed: bool,
+}
+
 pub struct AppState {
     pub platform: Platform,
     config_dir: PathBuf,
@@ -305,6 +324,41 @@ impl AppState {
         inner.activity_paused = paused;
         inner.activity_next_fire = None;
         build_snapshot(&inner)
+    }
+
+    /// Fires every enabled activity in sequence, bypassing the random-delay
+    /// scheduler so the profile editor can preview a profile without waiting.
+    pub async fn test_activity(
+        &self,
+        app: &AppHandle,
+        profile: ActivityProfile,
+    ) -> Result<Vec<TestActivityResult>, String> {
+        let enabled = enabled_activities(&profile);
+        if enabled.is_empty() {
+            return Err("no activity type is enabled for this profile".to_string());
+        }
+        let total = enabled.len() as u32;
+        let mut results = Vec::with_capacity(enabled.len());
+        for (i, kind) in enabled.iter().enumerate() {
+            if i > 0 {
+                tokio::time::sleep(TEST_ACTIVITY_GAP).await;
+            }
+            let _ = app.emit(
+                "test-activity://progress",
+                TestActivityProgress {
+                    kind: *kind,
+                    index: i as u32,
+                    total,
+                },
+            );
+            let performed =
+                perform_activity(&self.platform, &profile, *kind).map_err(|e| e.to_string())?;
+            results.push(TestActivityResult {
+                kind: *kind,
+                performed,
+            });
+        }
+        Ok(results)
     }
 
     pub async fn session_history(&self) -> Vec<HistoryEntry> {
