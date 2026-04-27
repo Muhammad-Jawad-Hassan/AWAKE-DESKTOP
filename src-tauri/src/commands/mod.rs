@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use tauri::{AppHandle, Manager, State};
+use tauri_plugin_dialog::DialogExt;
 
 use crate::core::{
     ActivityProfile, AppSettings, HistoryEntry, PlatformCapabilities, SessionConfig, SessionStats,
@@ -137,6 +138,73 @@ pub async fn test_activity(
     profile: ActivityProfile,
 ) -> Result<Vec<crate::runtime::TestActivityResult>, String> {
     state.test_activity(&app, profile).await
+}
+
+/// Exports a profile to a user-chosen `.json` file. Returns `false` if the user cancels.
+#[tauri::command]
+pub async fn export_profile(
+    app: AppHandle,
+    state: State<'_, Arc<AppState>>,
+    id: String,
+) -> Result<bool, String> {
+    let profile = state
+        .profiles()
+        .await
+        .into_iter()
+        .find(|p| p.id == id)
+        .ok_or_else(|| "profile not found".to_string())?;
+    let json = serde_json::to_string_pretty(&profile).map_err(|e| e.to_string())?;
+    let file_name = format!("{}.json", slugify(&profile.name));
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = app
+            .dialog()
+            .file()
+            .add_filter("Awake Profile", &["json"])
+            .set_file_name(&file_name)
+            .blocking_save_file();
+        let Some(path) = path else {
+            return Ok(false);
+        };
+        let path = path.into_path().map_err(|e| e.to_string())?;
+        std::fs::write(path, json).map_err(|e| e.to_string())?;
+        Ok(true)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Imports a profile from a user-chosen `.json` file, assigning it a fresh id
+/// so it never overwrites an existing one. `None` if the user cancels.
+#[tauri::command]
+pub async fn import_profile(
+    app: AppHandle,
+    state: State<'_, Arc<AppState>>,
+) -> Result<Option<ActivityProfile>, String> {
+    let mut profile = tauri::async_runtime::spawn_blocking(move || {
+        let path = app
+            .dialog()
+            .file()
+            .add_filter("Awake Profile", &["json"])
+            .blocking_pick_file();
+        let Some(path) = path else {
+            return Ok::<_, String>(None);
+        };
+        let path = path.into_path().map_err(|e| e.to_string())?;
+        let contents = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+        let profile: ActivityProfile =
+            serde_json::from_str(&contents).map_err(|e| format!("invalid profile file: {e}"))?;
+        Ok(Some(profile))
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+
+    if let Some(profile) = profile.as_mut() {
+        profile.id = format!("custom-{}", unique_suffix());
+        profile.built_in = false;
+        state.save_profile(profile.clone()).await?;
+    }
+    Ok(profile)
 }
 
 fn slugify(name: &str) -> String {
