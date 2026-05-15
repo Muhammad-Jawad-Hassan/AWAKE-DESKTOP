@@ -7,6 +7,8 @@ use super::profiles::{ClickKind, MouseButton};
 
 #[derive(Debug, thiserror::Error)]
 pub enum PlatformError {
+    // Only macOS gates input behind a permission, so other targets never build this.
+    #[allow(dead_code)]
     #[error("operating system permission required: {0}")]
     PermissionDenied(String),
     #[error("not supported on this platform: {0}")]
