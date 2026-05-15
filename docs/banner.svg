@@ -1,0 +1,58 @@
+<svg width="1280" height="320" viewBox="0 0 1280 320" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1280" y2="320" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#17150e"/>
+      <stop offset="1" stop-color="#201d13"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="42%" r="55%">
+      <stop offset="0" stop-color="#ffe14d" stop-opacity="0.30"/>
+      <stop offset="1" stop-color="#ffe14d" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="1280" height="320" rx="28" fill="url(#bg)"/>
+  <rect x="0.5" y="0.5" width="1279" height="319" rx="27.5" fill="none" stroke="#3a3623"/>
+
+  <ellipse cx="640" cy="150" rx="440" ry="190" fill="url(#glow)"/>
+
+  <g fill="#ffe14d">
+    <circle cx="332" cy="76" r="2.6" opacity="0.85"/>
+    <circle cx="958" cy="94" r="2.1" opacity="0.6"/>
+    <circle cx="902" cy="56" r="1.6" opacity="0.55"/>
+    <circle cx="378" cy="158" r="1.8" opacity="0.5"/>
+    <circle cx="892" cy="184" r="2.3" opacity="0.55"/>
+    <circle cx="420" cy="60" r="1.4" opacity="0.45"/>
+    <circle cx="850" cy="140" r="1.5" opacity="0.4"/>
+  </g>
+
+  <g transform="translate(640,74)">
+    <circle r="46" fill="#201e14" stroke="#3a3623" stroke-width="1.5"/>
+    <g stroke="#ffe14d" stroke-width="5.5" stroke-linecap="round" fill="none">
+      <path d="M0 -22 V6"/>
+      <path d="M20 -12 A28 28 0 1 1 -20 -12"/>
+    </g>
+  </g>
+
+  <text x="640" y="205" text-anchor="middle" font-family="'Segoe UI', system-ui, -apple-system, Roboto, sans-serif" font-size="58" font-weight="700" fill="#f8f4e3" letter-spacing="1">Awake</text>
+
+  <text x="640" y="238" text-anchor="middle" font-family="'Segoe UI', system-ui, -apple-system, Roboto, sans-serif" font-size="17" fill="#a9a384">Keeps your computer awake, on your terms, entirely on your machine.</text>
+
+  <g font-family="'Segoe UI', system-ui, -apple-system, Roboto, sans-serif" font-size="13" font-weight="600">
+    <g transform="translate(324,270)">
+      <rect width="120" height="30" rx="15" fill="#29271a" stroke="#3a3623"/>
+      <text x="60" y="20" text-anchor="middle" fill="#e4dfc8">Local-First</text>
+    </g>
+    <g transform="translate(458,270)">
+      <rect width="130" height="30" rx="15" fill="#29271a" stroke="#3a3623"/>
+      <text x="65" y="20" text-anchor="middle" fill="#e4dfc8">No Telemetry</text>
+    </g>
+    <g transform="translate(602,270)">
+      <rect width="210" height="30" rx="15" fill="#29271a" stroke="#3a3623"/>
+      <text x="105" y="20" text-anchor="middle" fill="#e4dfc8">macOS · Windows · Linux</text>
+    </g>
+    <g transform="translate(826,270)">
+      <rect width="130" height="30" rx="15" fill="#29271a" stroke="#3a3623"/>
+      <text x="65" y="20" text-anchor="middle" fill="#e4dfc8">MIT Licensed</text>
+    </g>
+  </g>
+</svg>
