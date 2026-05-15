@@ -55,7 +55,7 @@ pub enum WindowHandle {
     #[cfg(target_os = "windows")]
     Windows(isize),
     #[cfg(target_os = "linux")]
-    Linux(u64),
+    Linux,
 }
 
 // Sound: used only within a single async command call, never shared across threads.

@@ -15,7 +15,7 @@ pub fn native_handle(window: &WebviewWindow) -> Result<WindowHandle, PlatformErr
         #[cfg(target_os = "windows")]
         RawWindowHandle::Win32(h) => Ok(WindowHandle::Windows(h.hwnd.get())),
         #[cfg(target_os = "linux")]
-        RawWindowHandle::Xlib(h) => Ok(WindowHandle::Linux(h.window)),
+        RawWindowHandle::Xlib(_) => Ok(WindowHandle::Linux),
         _ => Err(PlatformError::Unsupported(
             "unrecognized window handle type".into(),
         )),
