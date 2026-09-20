@@ -316,6 +316,10 @@ impl AppState {
             let _ = tx.send(true);
         }
         inner.power_lease = None;
+        // The tick loop exits as soon as it observes the stop signal, before it
+        // would normally record history on session end, so this is the only
+        // place a manually-stopped session's stats ever get persisted.
+        record_history_entry(self, &mut inner);
         Ok(build_snapshot(&inner))
     }
 
