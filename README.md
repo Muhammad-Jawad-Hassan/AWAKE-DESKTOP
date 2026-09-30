@@ -19,7 +19,7 @@ It is built for the long, hands-off situations every developer runs into: model 
 - **Session-based.** Pick a duration, start it, and watch it count down. Extend it by 30 minutes or 1 hour without starting over.
 - **Keeps your system awake**, and independently, **your display awake**, using real OS-level power management, not a simulated mouse jiggle.
 - **Detects inactivity** with a configurable threshold, using the same OS APIs the system itself relies on. No keylogging, no input hooks.
-- **Optional activity automation.** Simulated mouse movement, clicks, keyboard taps, and scroll gestures fire at randomized intervals, so it never looks like a fixed-period timer. Mouse movement traces a short path instead of teleporting the cursor.
+- **Optional activity automation.** Simulated mouse movement, taps of a harmless key (Shift, Control, or a random pick of the two), and scroll gestures each fire at their own configurable rate per minute, jittered so it never looks like a fixed-period timer. Mouse movement traces a short path instead of teleporting the cursor.
 - **Pauses automatically.** Real input always takes priority, and any pending automated action is cancelled the moment you touch the mouse or keyboard.
 - **Stops instantly.** One click, one tray action, or a configurable global shortcut kills automation immediately.
 - **Reusable activity profiles.** Developer, Presentation, and Testing ship built in. Create your own, and import or export custom profiles as JSON.

@@ -6,7 +6,7 @@ Linux support is capability-gated: each feature is detected independently at sta
 
 - **Power management** requires `systemd-inhibit` (any systemd-based distro has it; non-systemd distros won't).
 - **Inactivity detection** requires `xprintidle` and an X11 session. There is no standard, unprivileged way to query system-wide idle time under Wayland, so this reports unsupported there.
-- **Activity automation** requires X11 or XWayland; `enigo` has no reliable native-Wayland input-injection backend across compositors.
+- **Activity automation** requires an X11 session. Under Wayland (including XWayland) both it and inactivity detection report unsupported, since XTest and `xprintidle` only see X11 clients.
 - **Screen-capture exclusion** has no general, cross-compositor API on Linux and is always reported unsupported.
 
 ## Screen-capture exclusion (macOS/Windows)
@@ -16,9 +16,11 @@ Linux support is capability-gated: each feature is detected independently at sta
 
 ## Activity automation
 
+- Simulated input goes wherever the OS routes it: key taps to the focused window, movement to the global cursor. That's why Awake never clicks and only taps Shift or Control, which do nothing on their own. Control is the default because a lone Shift can switch modes in some Chinese and Japanese input methods.
 - Needs Accessibility permission on macOS. Without it, the feature is visibly disabled (toggle greyed out, explanatory banner) rather than silently doing nothing.
 - On Windows, cannot send input to an elevated (Administrator) foreground window from a non-elevated Awake process. This is Windows' own User Interface Privilege Isolation, not something Awake can or should bypass.
-- The "avoid screen corners" safety margin only checks the mouse cursor's _current_ position when a movement/click is about to fire; it doesn't predict where a relative move will land.
+- Mouse movement is a small out-and-back jiggle, so the cursor ends where it started. It's skipped when either the start point or the far end of the jiggle is within the corner margin.
+- Corner checks use the primary display's bounds. On a secondary monitor, corners aren't recognized, and a monitor placed left of or above the primary can skip moves it didn't need to.
 
 ## Activity statistics and session history
 
@@ -31,4 +33,4 @@ Linux support is capability-gated: each feature is detected independently at sta
 
 ## Single window
 
-- Awake supports exactly one main window. Multiple monitors are fully supported for cursor-position/corner-avoidance logic, but the app itself doesn't have a "pick which display" concept, and it isn't needed for a keep-awake utility.
+- Awake supports exactly one main window. The app doesn't have a "pick which display" concept, and it isn't needed for a keep-awake utility.

@@ -16,7 +16,7 @@ Awake stores all configuration in a single local JSON file. No database, no serv
 {
   "schema_version": 1,
   "settings": {/* AppSettings, see below */},
-  "profiles": [/* built-in + custom ActivityProfile entries */],
+  "profiles": [/* custom ActivityProfile entries; built-ins always come from the app */],
   "last_session_config": {/* the last session you started, reused to pre-fill the setup screen */},
   "templates": [/* named, reusable SessionConfig presets you've saved */],
   "history": [/* bounded log of past sessions, opt-in, see below */],
@@ -25,19 +25,19 @@ Awake stores all configuration in a single local JSON file. No database, no serv
 
 ### Settings
 
-| Field                      | Default                         | Meaning                                                                                                      |
-| -------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `startMinimized`           | `false`                         | Launch straight into the tray with no window.                                                                |
-| `launchAtLogin`            | `false`                         | Register Awake to start automatically when you log in.                                                       |
-| `closeToTray`              | `true`                          | Closing the window hides it instead of quitting.                                                             |
-| `excludeFromScreenCapture` | `false`                         | Hide the Awake window from screen recordings (where supported).                                              |
-| `notifyOnSessionEnd`       | `true`                          | Show a system notification when a session completes/stops/fails.                                             |
-| `emergencyStopShortcut`    | `CommandOrControl+Shift+Escape` | Global shortcut that immediately pauses activity automation.                                                 |
-| `recordActivityStatistics` | `false`                         | Opt-in local activity stats and session history; never records _what_ you typed, only _that_ input occurred. |
+| Field                      | Default                                            | Meaning                                                                                                      |
+| -------------------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `startMinimized`           | `false`                                            | Launch straight into the tray with no window.                                                                |
+| `launchAtLogin`            | `false`                                            | Register Awake to start automatically when you log in.                                                       |
+| `closeToTray`              | `true`                                             | Closing the window hides it instead of quitting.                                                             |
+| `excludeFromScreenCapture` | `false`                                            | Hide the Awake window from screen recordings (where supported).                                              |
+| `notifyOnSessionEnd`       | `true`                                             | Show a system notification when a session completes/stops/fails.                                             |
+| `emergencyStopShortcut`    | Cmd+Shift+Esc (macOS), Ctrl+Alt+Shift+Esc (others) | Global shortcut that pauses automation and cuts off any input in flight, including Test Activity.            |
+| `recordActivityStatistics` | `false`                                            | Opt-in local activity stats and session history; never records _what_ you typed, only _that_ input occurred. |
 
 ### Activity profiles
 
-Each profile bundles: an inactivity threshold, a random delay range, mouse/keyboard/gesture configuration, and safety guardrails (corner-avoidance margin, max actions/minute). Three built-in profiles ship with the app (`Developer`, `Presentation`, `Testing`) and can't be modified or deleted, so clone their settings into a new custom profile instead via Settings → Activity Profiles → New Profile. Custom profiles can be exported to a `.json` file and imported back in from the same screen.
+Each profile bundles: an inactivity threshold, mouse/keyboard/gesture configuration with a rate for each (jittered by up to 50% either way), and safety guardrails (corner-avoidance margin, and a cap of up to 60 combined actions per minute that the rates must fit under; one activity can use all of it). The keyboard key is Shift, Control, or Random, which picks one of the two on each tap. Three built-in profiles ship with the app (`Developer`, `Presentation`, `Testing`) and can't be modified or deleted, so clone their settings into a new custom profile instead via Settings → Activity Profiles → New Profile. Custom profiles can be exported to a `.json` file and imported back in from the same screen.
 
 ### Session templates
 
@@ -53,4 +53,6 @@ The app writes this file atomically (temp file + rename), so it's always either 
 
 ## Resetting configuration
 
-Quit Awake and delete the config file (or just the fields you want reset, since missing fields fall back to defaults). Built-in profiles are always re-seeded if missing.
+Quit Awake and delete the config file (or just the fields you want reset, since missing fields fall back to defaults). Built-in profiles aren't stored, so they always match the installed version.
+
+If the file can't be read (for example after a crash mid-write), Awake moves it aside as `config.corrupt-<timestamp>.json`, starts with defaults, and says so on launch, so nothing is silently overwritten. Saves go through a synced temp file and a rename.

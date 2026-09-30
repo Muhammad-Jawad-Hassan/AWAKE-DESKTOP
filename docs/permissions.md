@@ -13,21 +13,21 @@ Awake asks for the minimum permission each active feature needs, and only when t
 
 ## Windows
 
-| Feature                   | Permission       | Notes                                                                                                                                                                                                                                                         |
-| ------------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Keep system/display awake | None             | `SetThreadExecutionState` is available to any process.                                                                                                                                                                                                        |
-| Inactivity detection      | None             | `GetLastInputInfo` is a read-only query.                                                                                                                                                                                                                      |
+| Feature                   | Permission       | Notes                                                                                                                                                                                                                                                        |
+| ------------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Keep system/display awake | None             | `SetThreadExecutionState` is available to any process.                                                                                                                                                                                                       |
+| Inactivity detection      | None             | `GetLastInputInfo` is a read-only query.                                                                                                                                                                                                                     |
 | Activity automation       | None (typically) | Uses `SendInput`-equivalent APIs available to standard user processes. If the _foreground_ window is running elevated (as Administrator), a non-elevated Awake cannot send input to it. This is standard Windows UI Access Control, not an Awake limitation. |
-| Screen-capture exclusion  | None             | `SetWindowDisplayAffinity` is a normal window property.                                                                                                                                                                                                       |
+| Screen-capture exclusion  | None             | `SetWindowDisplayAffinity` is a normal window property.                                                                                                                                                                                                      |
 
 ## Linux
 
-| Feature                   | Permission                           | Notes                                                                                                                |
-| ------------------------- | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
-| Keep system/display awake | None                                 | Uses `systemd-inhibit`, available on any systemd-based distro. Reports unsupported if `systemd-inhibit` isn't found. |
-| Inactivity detection      | None, but **X11 only**               | Uses `xprintidle`. No standard, unprivileged idle-time API exists under Wayland; reports unsupported there.          |
-| Activity automation       | None, but **X11 (or XWayland) only** | Uses `enigo`, which has no reliable Wayland-native backend.                                                          |
-| Screen-capture exclusion  | Not supported                        | No general cross-compositor API exists.                                                                              |
+| Feature                   | Permission             | Notes                                                                                                                |
+| ------------------------- | ---------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Keep system/display awake | None                   | Uses `systemd-inhibit`, available on any systemd-based distro. Reports unsupported if `systemd-inhibit` isn't found. |
+| Inactivity detection      | None, but **X11 only** | Uses `xprintidle`. No standard, unprivileged idle-time API exists under Wayland; reports unsupported there.          |
+| Activity automation       | None, but **X11 only** | Uses `enigo` via XTest, which only reaches X11 clients; reports unsupported under Wayland.                           |
+| Screen-capture exclusion  | Not supported          | No general cross-compositor API exists.                                                                              |
 
 ## Why activity automation needs Accessibility (and what it can't do)
 

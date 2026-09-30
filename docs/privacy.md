@@ -24,7 +24,7 @@ When a session ends, that session's statistics are appended to a local session h
 
 ## Activity automation and your screen
 
-When Activity Automation is on, Awake simulates mouse movement, clicks, keyboard taps, or scroll gestures. It does not read your screen content, other applications' data, or clipboard. The corner-avoidance safety setting exists purely to reduce the chance of an automated click accidentally triggering something (like a hot corner), not to observe what's on screen.
+When Activity Automation is on, Awake simulates mouse movement, taps of a harmless key, or scroll gestures. It never clicks. It does not read your screen content, other applications' data, or clipboard. The corner-avoidance safety setting exists purely to reduce the chance of automated movement accidentally triggering something (like a hot corner), not to observe what's on screen.
 
 ## Screen-capture exclusion
 
