@@ -10,11 +10,11 @@ use super::timer::{validate_duration, DurationError, SessionTimer};
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionConfig {
-    #[serde(with = "duration_secs")]
+    #[serde(with = "super::serde_secs")]
     pub duration: Duration,
     pub keep_system_awake: bool,
     pub keep_display_awake: bool,
-    #[serde(with = "duration_secs")]
+    #[serde(with = "super::serde_secs")]
     pub inactivity_threshold: Duration,
     /// `None` means activity automation is disabled for this session.
     pub activity_profile_id: Option<String>,
@@ -66,6 +66,7 @@ pub struct Session {
     config: SessionConfig,
     state: SessionState,
     timer: Option<SessionTimer>,
+    ended_at: Option<Instant>,
 }
 
 impl Session {
@@ -74,6 +75,7 @@ impl Session {
             config,
             state: SessionState::Idle,
             timer: None,
+            ended_at: None,
         }
     }
 
@@ -85,8 +87,10 @@ impl Session {
         self.state
     }
 
-    pub fn timer(&self) -> Option<&SessionTimer> {
-        self.timer.as_ref()
+    /// Time spent active; frozen once the session ends.
+    pub fn elapsed(&self, now: Instant) -> Duration {
+        self.timer
+            .map_or(Duration::ZERO, |t| t.elapsed(self.ended_at.unwrap_or(now)))
     }
 
     pub fn start(&mut self, now: Instant) -> Result<(), SessionError> {
@@ -96,15 +100,20 @@ impl Session {
         self.config.validate()?;
         self.timer = Some(SessionTimer::new(now, self.config.duration));
         self.state = SessionState::Active;
+        self.ended_at = None;
         Ok(())
     }
 
-    /// Adds time to a running session, capped at the same 24h sanity bound as a fresh session.
+    /// Adds time to a running session, within `MAX_SESSION_DURATION`.
     pub fn extend(&mut self, extra: Duration) -> Result<(), SessionError> {
         if self.state != SessionState::Active {
             return Err(SessionError::NotActive);
         }
-        let new_duration = self.config.duration + extra;
+        let new_duration = self
+            .config
+            .duration
+            .checked_add(extra)
+            .ok_or(SessionError::InvalidDuration(DurationError::TooLong))?;
         validate_duration(new_duration).map_err(SessionError::InvalidDuration)?;
         self.config.duration = new_duration;
         if let Some(timer) = self.timer.as_mut() {
@@ -113,16 +122,23 @@ impl Session {
         Ok(())
     }
 
-    pub fn stop(&mut self) -> Result<(), SessionError> {
+    pub fn stop(&mut self, now: Instant) -> Result<(), SessionError> {
         if self.state != SessionState::Active {
             return Err(SessionError::NotActive);
         }
-        self.state = SessionState::Stopped;
+        self.end(SessionState::Stopped, now);
         Ok(())
     }
 
-    pub fn fail(&mut self) {
-        self.state = SessionState::Failed;
+    pub fn fail(&mut self, now: Instant) {
+        if self.state == SessionState::Active {
+            self.end(SessionState::Failed, now);
+        }
+    }
+
+    fn end(&mut self, state: SessionState, now: Instant) {
+        self.state = state;
+        self.ended_at = Some(now);
     }
 
     /// Transitions to `Completed` if the duration has elapsed; no-op otherwise.
@@ -130,7 +146,7 @@ impl Session {
         if self.state == SessionState::Active {
             if let Some(timer) = &self.timer {
                 if timer.is_expired(now) {
-                    self.state = SessionState::Completed;
+                    self.end(SessionState::Completed, now);
                 }
             }
         }
@@ -146,21 +162,6 @@ impl Session {
 
     pub fn is_active(&self) -> bool {
         self.state == SessionState::Active
-    }
-}
-
-mod duration_secs {
-    use std::time::Duration;
-
-    use serde::{Deserialize, Deserializer, Serializer};
-
-    pub fn serialize<S: Serializer>(duration: &Duration, s: S) -> Result<S::Ok, S::Error> {
-        s.serialize_u64(duration.as_secs())
-    }
-
-    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Duration, D::Error> {
-        let secs = u64::deserialize(d)?;
-        Ok(Duration::from_secs(secs))
     }
 }
 
@@ -215,14 +216,14 @@ mod tests {
     fn stop_transitions_active_to_stopped() {
         let mut session = Session::idle(valid_config());
         session.start(Instant::now()).unwrap();
-        session.stop().unwrap();
+        session.stop(Instant::now()).unwrap();
         assert_eq!(session.state(), SessionState::Stopped);
     }
 
     #[test]
     fn cannot_stop_a_session_that_is_not_active() {
         let mut session = Session::idle(valid_config());
-        assert_eq!(session.stop(), Err(SessionError::NotActive));
+        assert_eq!(session.stop(Instant::now()), Err(SessionError::NotActive));
     }
 
     #[test]
@@ -252,8 +253,8 @@ mod tests {
     fn stopped_session_cannot_be_stopped_again() {
         let mut session = Session::idle(valid_config());
         session.start(Instant::now()).unwrap();
-        session.stop().unwrap();
-        assert_eq!(session.stop(), Err(SessionError::NotActive));
+        session.stop(Instant::now()).unwrap();
+        assert_eq!(session.stop(Instant::now()), Err(SessionError::NotActive));
     }
 
     #[test]
@@ -290,5 +291,41 @@ mod tests {
         let mut session = Session::idle(config);
         session.start(Instant::now()).unwrap();
         assert!(session.extend(Duration::from_secs(2 * 60 * 60)).is_err());
+    }
+
+    #[test]
+    fn extend_rejects_an_overflowing_amount() {
+        let mut session = Session::idle(valid_config());
+        session.start(Instant::now()).unwrap();
+        assert_eq!(
+            session.extend(Duration::MAX),
+            Err(SessionError::InvalidDuration(DurationError::TooLong))
+        );
+    }
+
+    #[test]
+    fn elapsed_freezes_when_the_session_ends() {
+        let mut session = Session::idle(valid_config());
+        let start = Instant::now();
+        session.start(start).unwrap();
+        session.stop(start + Duration::from_secs(300)).unwrap();
+        assert_eq!(
+            session.elapsed(start + Duration::from_secs(9000)),
+            Duration::from_secs(300)
+        );
+    }
+
+    #[test]
+    fn a_failed_session_stays_failed_and_keeps_its_end_time() {
+        let mut session = Session::idle(valid_config());
+        let start = Instant::now();
+        session.start(start).unwrap();
+        session.fail(start + Duration::from_secs(5));
+        session.fail(start + Duration::from_secs(50));
+        assert_eq!(session.state(), SessionState::Failed);
+        assert_eq!(
+            session.elapsed(start + Duration::from_secs(99)),
+            Duration::from_secs(5)
+        );
     }
 }

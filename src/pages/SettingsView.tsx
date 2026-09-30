@@ -1,8 +1,10 @@
+import { useState } from "react";
+
 import { AlertIcon } from "@/components/Icons";
 import { ShortcutRecorder } from "@/components/ShortcutRecorder";
 import { ToggleRow } from "@/components/ToggleRow";
 import { commands } from "@/lib/commands";
-import { formatDateTime, formatDurationShort } from "@/lib/format";
+import { formatActivityRates, formatDateTime, formatDuration } from "@/lib/format";
 import type {
   ActivityProfile,
   AppSettings,
@@ -18,6 +20,8 @@ interface SettingsViewProps {
   templates: SessionTemplate[];
   history: HistoryEntry[];
   error: string | null;
+  /** Profile used by the running session; it can't be deleted. */
+  activeProfileId: string | null;
   onEditProfile: (profile: ActivityProfile | null) => void;
   onDeleteProfile: (id: string) => void;
   onImportProfile: () => void;
@@ -34,6 +38,7 @@ export function SettingsView({
   templates,
   history,
   error,
+  activeProfileId,
   onEditProfile,
   onDeleteProfile,
   onImportProfile,
@@ -42,18 +47,27 @@ export function SettingsView({
   onClearHistory,
   capabilities,
 }: SettingsViewProps) {
-  function update(patch: Partial<AppSettings>) {
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  async function update(patch: Partial<AppSettings>) {
     const next = { ...settings, ...patch };
+    setSaveError(null);
     onSettingsChange(next);
-    commands.updateSettings(next).catch((err) => console.error("Failed to save settings:", err));
+    try {
+      await commands.updateSettings(next);
+    } catch (err) {
+      setSaveError(String(err));
+      // Re-sync; a later save may have landed.
+      commands.getSettings().then(onSettingsChange, () => {});
+    }
   }
 
   return (
     <div className="view">
-      {error && (
-        <div className="banner banner-danger">
+      {(saveError ?? error) && (
+        <div className="banner banner-danger" role="alert">
           <AlertIcon />
-          <span>{error}</span>
+          <span>{saveError ?? error}</span>
         </div>
       )}
 
@@ -123,7 +137,7 @@ export function SettingsView({
         </div>
       </div>
 
-      {capabilities && !capabilities.inputSimulation && (
+      {capabilities && !capabilities.inputPermissionGranted && (
         <div className="card stack">
           <div className="section-title">Permissions</div>
           <div className="banner banner-warning">
@@ -132,7 +146,10 @@ export function SettingsView({
               Activity automation needs Accessibility access to control the mouse and keyboard.
             </span>
           </div>
-          <button className="btn btn-secondary" onClick={() => commands.requestPermissions()}>
+          <button
+            className="btn btn-secondary"
+            onClick={() => commands.requestPermissions().catch((err) => setSaveError(String(err)))}
+          >
             Grant Accessibility Access
           </button>
         </div>
@@ -159,8 +176,7 @@ export function SettingsView({
               <div>
                 <div className="field-label">{profile.name}</div>
                 <div className="field-hint">
-                  {profile.builtIn ? "Built-in" : "Custom"} · {profile.minDelay}-{profile.maxDelay}s
-                  Delay
+                  {profile.builtIn ? "Built-in" : "Custom"} · {formatActivityRates(profile)}
                 </div>
               </div>
               <div className="list-row-actions">
@@ -176,6 +192,10 @@ export function SettingsView({
                 {!profile.builtIn && (
                   <button
                     className="btn btn-danger btn-sm"
+                    disabled={profile.id === activeProfileId}
+                    title={
+                      profile.id === activeProfileId ? "In use by the running session" : undefined
+                    }
                     onClick={() => onDeleteProfile(profile.id)}
                   >
                     Delete
@@ -224,9 +244,8 @@ export function SettingsView({
                 <div>
                   <div className="field-label">{formatDateTime(entry.endedAtUnixSecs)}</div>
                   <div className="field-hint">
-                    {formatDurationShort(entry.durationSecs)} ·{" "}
-                    {formatDurationShort(entry.stats.activeSecs)} Active ·{" "}
-                    {formatDurationShort(entry.stats.inactiveSecs)} Inactive ·{" "}
+                    {formatDuration(entry.durationSecs)} · {formatDuration(entry.stats.activeSecs)}{" "}
+                    Active · {formatDuration(entry.stats.inactiveSecs)} Inactive ·{" "}
                     {entry.stats.automatedEventCount} Automated Events
                   </div>
                 </div>

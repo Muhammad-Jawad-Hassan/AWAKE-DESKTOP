@@ -6,8 +6,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 
+use crate::core::profiles::{limits, Limits};
 use crate::core::{
-    ActivityProfile, AppSettings, HistoryEntry, PlatformCapabilities, SessionConfig, SessionStats,
+    ActivityProfile, AppSettings, HistoryEntry, PlatformCapabilities, SessionConfig,
     SessionTemplate,
 };
 use crate::runtime::{broadcast_snapshot, AppState, SessionSnapshot};
@@ -25,11 +26,10 @@ pub async fn get_last_session_config(
     Ok(state.last_session_config().await)
 }
 
+/// Messages queued for the UI, such as a recovered config file. Each is returned once.
 #[tauri::command]
-pub async fn get_session_stats(
-    state: State<'_, Arc<AppState>>,
-) -> Result<Option<SessionStats>, String> {
-    Ok(state.session_stats().await)
+pub fn take_notices(state: State<'_, Arc<AppState>>) -> Vec<String> {
+    state.take_notices()
 }
 
 #[tauri::command]
@@ -104,7 +104,7 @@ pub async fn emergency_stop(
     app: AppHandle,
     state: State<'_, Arc<AppState>>,
 ) -> Result<SessionSnapshot, String> {
-    let snapshot = state.set_activity_paused(true).await;
+    let snapshot = state.emergency_stop().await;
     broadcast_snapshot(&app, &snapshot);
     Ok(snapshot)
 }
@@ -114,6 +114,17 @@ pub async fn list_profiles(
     state: State<'_, Arc<AppState>>,
 ) -> Result<Vec<ActivityProfile>, String> {
     Ok(state.profiles().await)
+}
+
+#[tauri::command]
+pub fn get_limits() -> Limits {
+    limits()
+}
+
+/// A new custom profile with default settings and a fresh id.
+#[tauri::command]
+pub fn new_profile() -> ActivityProfile {
+    ActivityProfile::new_custom(format!("custom-{}", unique_suffix()))
 }
 
 #[tauri::command]
@@ -129,15 +140,20 @@ pub async fn delete_profile(state: State<'_, Arc<AppState>>, id: String) -> Resu
     state.delete_profile(id).await
 }
 
-/// Fires one activity from `profile` right now, so the profile editor can
-/// preview what it does without waiting for the random delay to elapse.
+#[tauri::command]
+pub fn cancel_test_activity(state: State<'_, Arc<AppState>>, run_id: u64) {
+    state.cancel_test_activity(run_id);
+}
+
+/// Fires each enabled activity once so the editor can preview a profile.
 #[tauri::command]
 pub async fn test_activity(
     app: AppHandle,
     state: State<'_, Arc<AppState>>,
     profile: ActivityProfile,
+    run_id: u64,
 ) -> Result<Vec<crate::runtime::TestActivityResult>, String> {
-    state.test_activity(&app, profile).await
+    state.test_activity(&app, profile, run_id).await
 }
 
 /// Exports a profile to a user-chosen `.json` file. Returns `false` if the user cancels.
@@ -174,8 +190,7 @@ pub async fn export_profile(
     .map_err(|e| e.to_string())?
 }
 
-/// Imports a profile from a user-chosen `.json` file, assigning it a fresh id
-/// so it never overwrites an existing one. `None` if the user cancels.
+/// Imports a profile under a fresh id. `None` if the user cancels.
 #[tauri::command]
 pub async fn import_profile(
     app: AppHandle,
@@ -202,6 +217,7 @@ pub async fn import_profile(
     if let Some(profile) = profile.as_mut() {
         profile.id = format!("custom-{}", unique_suffix());
         profile.built_in = false;
+        profile.migrate();
         state.save_profile(profile.clone()).await?;
     }
     Ok(profile)
@@ -259,8 +275,13 @@ pub async fn update_settings(
     state: State<'_, Arc<AppState>>,
     settings: AppSettings,
 ) -> Result<(), String> {
-    state.update_settings(settings.clone()).await?;
-    shortcuts::reregister_emergency_stop(&app, &settings.emergency_stop_shortcut);
+    let old_shortcut = state.settings().await.emergency_stop_shortcut;
+    let new_shortcut = settings.emergency_stop_shortcut.clone();
+    shortcuts::replace_emergency_stop(&app, &old_shortcut, &new_shortcut)?;
+    if let Err(err) = state.update_settings(settings.clone()).await {
+        let _ = shortcuts::replace_emergency_stop(&app, &new_shortcut, &old_shortcut);
+        return Err(err);
+    }
     apply_screen_capture_exclusion(&app, state.inner(), settings.exclude_from_screen_capture);
     apply_launch_at_login(&app, settings.launch_at_login);
     Ok(())

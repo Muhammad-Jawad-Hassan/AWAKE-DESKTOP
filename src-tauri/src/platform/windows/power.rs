@@ -36,7 +36,7 @@ impl PowerManager for WindowsPowerManager {
                 if acquired_tx.send(previous.0 != 0).is_err() {
                     return;
                 }
-                // Block here, on this same thread, until told to release.
+                // Same thread must release it.
                 let _ = release_rx.recv();
                 unsafe {
                     let _ = SetThreadExecutionState(ES_CONTINUOUS);

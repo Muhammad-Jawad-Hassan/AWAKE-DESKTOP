@@ -5,6 +5,10 @@ interface StepperProps {
   max?: number;
   step?: number;
   suffix?: string;
+  /** Names the control for screen readers, e.g. "mouse moves per minute". */
+  label?: string;
+  /** Single-line layout for settings rows. */
+  inline?: boolean;
   /** Override the default clamped +/- math, e.g. for cross-field rollover. */
   onIncrement?: () => void;
   onDecrement?: () => void;
@@ -19,6 +23,8 @@ export function Stepper({
   max = Infinity,
   step = 1,
   suffix,
+  label,
+  inline,
   onIncrement,
   onDecrement,
   canIncrement,
@@ -30,17 +36,17 @@ export function Stepper({
   const incDisabled = canIncrement === undefined ? value >= max : !canIncrement;
 
   return (
-    <div className="stepper">
+    <div className={`stepper${inline ? " stepper-inline" : ""}`} role="group" aria-label={label}>
       <button
         type="button"
         className="stepper-btn"
         onClick={dec}
         disabled={decDisabled}
-        aria-label="Decrease"
+        aria-label={label ? `Decrease ${label}` : "Decrease"}
       >
         <MinusIcon />
       </button>
-      <div className="stepper-value">
+      <div className="stepper-value" aria-live="polite">
         {value}
         {suffix && <span className="stepper-suffix">{suffix}</span>}
       </div>
@@ -49,7 +55,7 @@ export function Stepper({
         className="stepper-btn"
         onClick={inc}
         disabled={incDisabled}
-        aria-label="Increase"
+        aria-label={label ? `Increase ${label}` : "Increase"}
       >
         <PlusIcon />
       </button>

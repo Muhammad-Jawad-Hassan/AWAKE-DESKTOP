@@ -1,34 +1,31 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import { CountdownRing } from "@/components/CountdownRing";
 import { AlertIcon, PauseIcon, PlayIcon, StopIcon } from "@/components/Icons";
 import { StatusPill } from "@/components/StatusPill";
 import { commands } from "@/lib/commands";
 import { formatActivityKind, formatClock, formatMinSec, formatRelative } from "@/lib/format";
-import type { ActivityProfile, SessionSnapshot, SessionStats } from "@/lib/types";
+import type { ActivityProfile, Limits, SessionSnapshot } from "@/lib/types";
+
+const EXTENSIONS = [
+  { label: "+30m", secs: 30 * 60 },
+  { label: "+1h", secs: 60 * 60 },
+];
 
 interface ActiveViewProps {
   snapshot: SessionSnapshot;
   profiles: ActivityProfile[];
+  limits: Limits;
 }
 
-export function ActiveView({ snapshot, profiles }: ActiveViewProps) {
+export function ActiveView({ snapshot, profiles, limits }: ActiveViewProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [stats, setStats] = useState<SessionStats | null>(null);
-  const profile = profiles.find((p) => p.id === snapshot.activityProfileId);
+  const { stats } = snapshot;
+  const automating = snapshot.activityProfileId !== null;
+  const profileName = profiles.find((p) => p.id === snapshot.activityProfileId)?.name ?? "Custom";
   const progress =
     snapshot.durationSecs > 0 ? 1 - snapshot.remainingSecs / snapshot.durationSecs : 0;
-
-  useEffect(() => {
-    let cancelled = false;
-    commands.getSessionStats().then((s) => {
-      if (!cancelled) setStats(s);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [snapshot.remainingSecs]);
 
   async function run(action: () => Promise<unknown>) {
     setBusy(true);
@@ -55,31 +52,26 @@ export function ActiveView({ snapshot, profiles }: ActiveViewProps) {
       </div>
 
       <div className="extend-row">
-        <button
-          className="chip"
-          style={{ flex: 1 }}
-          disabled={busy}
-          onClick={() => run(() => commands.extendSession(30 * 60))}
-        >
-          +30m
-        </button>
-        <button
-          className="chip"
-          style={{ flex: 1 }}
-          disabled={busy}
-          onClick={() => run(() => commands.extendSession(60 * 60))}
-        >
-          +1h
-        </button>
+        {EXTENSIONS.map(({ label, secs }) => (
+          <button
+            key={label}
+            className="chip"
+            style={{ flex: 1 }}
+            disabled={busy || snapshot.durationSecs + secs > limits.maxSessionSecs}
+            onClick={() => run(() => commands.extendSession(secs))}
+          >
+            {label}
+          </button>
+        ))}
       </div>
 
       <div className="card stack">
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
           {snapshot.keepSystemAwake && <StatusPill label="System Awake" tone="active" />}
           {snapshot.keepDisplayAwake && <StatusPill label="Display Awake" tone="active" />}
-          {profile && (
+          {automating && (
             <StatusPill
-              label={snapshot.activityPaused ? "Activity Paused" : `Activity: ${profile.name}`}
+              label={snapshot.activityPaused ? "Activity Paused" : `Activity: ${profileName}`}
               tone={snapshot.activityPaused ? "default" : "active"}
             />
           )}
@@ -89,7 +81,7 @@ export function ActiveView({ snapshot, profiles }: ActiveViewProps) {
           />
         </div>
 
-        {profile && (
+        {automating && (
           <>
             <hr className="divider" />
             <div className="field-hint">
@@ -136,15 +128,22 @@ export function ActiveView({ snapshot, profiles }: ActiveViewProps) {
         </div>
       )}
 
+      {automating && snapshot.activityWarning && !snapshot.activityPaused && (
+        <div className="banner banner-warning" role="status">
+          <AlertIcon />
+          <span>{snapshot.activityWarning}</span>
+        </div>
+      )}
+
       {error && (
-        <div className="banner banner-danger">
+        <div className="banner banner-danger" role="alert">
           <AlertIcon />
           <span>{error}</span>
         </div>
       )}
 
       <div className="stack">
-        {profile && (
+        {automating && (
           <button
             className="btn btn-secondary"
             disabled={busy}
@@ -164,7 +163,7 @@ export function ActiveView({ snapshot, profiles }: ActiveViewProps) {
           <StopIcon />
           Stop Session
         </button>
-        {profile && !snapshot.activityPaused && (
+        {automating && !snapshot.activityPaused && (
           <button
             className="btn btn-link"
             style={{ alignSelf: "center" }}

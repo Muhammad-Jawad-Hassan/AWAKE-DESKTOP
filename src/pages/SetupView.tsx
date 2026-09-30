@@ -5,9 +5,10 @@ import { Stepper } from "@/components/Stepper";
 import { ToggleRow } from "@/components/ToggleRow";
 import { commands } from "@/lib/commands";
 import { INACTIVITY_THRESHOLD_OPTIONS } from "@/lib/constants";
-import { formatDurationShort } from "@/lib/format";
+import { formatActivityRates, formatDuration } from "@/lib/format";
 import type {
   ActivityProfile,
+  Limits,
   PlatformCapabilities,
   SessionSnapshot,
   SessionTemplate,
@@ -20,18 +21,16 @@ const PRESETS = [
   { label: "8h", hours: 8, minutes: 0 },
 ];
 
-const MAX_HOURS = 23;
-
 const ENDED_STATES = new Set(["completed", "stopped", "failed"]);
 
 interface SetupViewProps {
   profiles: ActivityProfile[];
   templates: SessionTemplate[];
   capabilities: PlatformCapabilities | null;
+  limits: Limits;
   snapshot: SessionSnapshot;
   endedBannerDismissed: boolean;
   onDismissEndedBanner: () => void;
-  onStarted: () => void;
   onTemplateSaved: () => void;
 }
 
@@ -39,10 +38,10 @@ export function SetupView({
   profiles,
   templates,
   capabilities,
+  limits,
   snapshot,
   endedBannerDismissed,
   onDismissEndedBanner,
-  onStarted,
   onTemplateSaved,
 }: SetupViewProps) {
   const [hours, setHours] = useState(1);
@@ -62,27 +61,34 @@ export function SetupView({
     if (initialized.current || profiles.length === 0) return;
     initialized.current = true;
 
-    commands.getLastSessionConfig().then((last) => {
-      if (last) {
+    const first = profiles[0]!;
+    commands
+      .getLastSessionConfig()
+      .then((last) => {
+        if (!last) {
+          setProfileId(first.id);
+          setInactivityThreshold(first.inactivityThreshold);
+          return;
+        }
         setHours(Math.floor(last.duration / 3600));
         setMinutes(Math.floor((last.duration % 3600) / 60));
         setKeepSystemAwake(last.keepSystemAwake);
         setKeepDisplayAwake(last.keepDisplayAwake);
         setInactivityThreshold(last.inactivityThreshold);
-        setActivityEnabled(last.activityProfileId !== null);
-        if (last.activityProfileId && profiles.some((p) => p.id === last.activityProfileId)) {
-          setProfileId(last.activityProfileId);
-          return;
-        }
-      }
-      setProfileId((current) => current || profiles[0]!.id);
-    });
+        const lastProfileExists = profiles.some((p) => p.id === last.activityProfileId);
+        setActivityEnabled(lastProfileExists);
+        setProfileId(lastProfileExists ? last.activityProfileId! : first.id);
+      })
+      .catch((err) => setError(`Couldn't restore your last session settings: ${String(err)}`));
   }, [profiles]);
 
+  const maxHours = Math.floor(limits.maxSessionSecs / 3600);
+  const fits = (h: number, m: number) => h * 3600 + m * 60 <= limits.maxSessionSecs;
+
   function incrementMinutes() {
-    if (minutes < 59) {
+    if (minutes < 59 && fits(hours, minutes + 1)) {
       setMinutes(minutes + 1);
-    } else if (hours < MAX_HOURS) {
+    } else if (minutes === 59 && fits(hours + 1, 0)) {
       setMinutes(0);
       setHours(hours + 1);
     }
@@ -102,7 +108,9 @@ export function SetupView({
     () => profiles.find((p) => p.id === profileId),
     [profiles, profileId],
   );
-  const inputUnsupported = capabilities !== null && !capabilities.inputSimulation;
+  const inputUnsupported =
+    capabilities !== null && (!capabilities.inputSimulation || !capabilities.idleDetection);
+  const activityOn = activityEnabled && !inputUnsupported;
 
   function selectProfile(id: string) {
     setProfileId(id);
@@ -118,8 +126,16 @@ export function SetupView({
     setKeepDisplayAwake(config.keepDisplayAwake);
     setInactivityThreshold(config.inactivityThreshold);
     setActivityEnabled(config.activityProfileId !== null);
-    if (config.activityProfileId && profiles.some((p) => p.id === config.activityProfileId)) {
-      setProfileId(config.activityProfileId);
+    setError(null);
+    if (config.activityProfileId) {
+      if (profiles.some((p) => p.id === config.activityProfileId)) {
+        setProfileId(config.activityProfileId);
+      } else {
+        setActivityEnabled(false);
+        setError(
+          `The activity profile saved in "${template.name}" no longer exists, so activity automation is off.`,
+        );
+      }
     }
   }
 
@@ -136,7 +152,7 @@ export function SetupView({
           keepSystemAwake,
           keepDisplayAwake,
           inactivityThreshold,
-          activityProfileId: activityEnabled ? profileId || null : null,
+          activityProfileId: activityOn ? profileId || null : null,
         },
       });
       setNewTemplateName("");
@@ -157,7 +173,6 @@ export function SetupView({
     setStarting(true);
     try {
       await commands.startSession(config);
-      onStarted();
     } catch (err) {
       setError(String(err));
     } finally {
@@ -171,7 +186,7 @@ export function SetupView({
       keepSystemAwake,
       keepDisplayAwake,
       inactivityThreshold,
-      activityProfileId: activityEnabled ? profileId || null : null,
+      activityProfileId: activityOn ? profileId || null : null,
     });
   }
 
@@ -186,7 +201,7 @@ export function SetupView({
     });
   }
 
-  const canStart = (keepSystemAwake || keepDisplayAwake || activityEnabled) && durationSecs > 0;
+  const canStart = (keepSystemAwake || keepDisplayAwake || activityOn) && durationSecs > 0;
 
   const showEndedBanner = ENDED_STATES.has(snapshot.state) && !endedBannerDismissed;
 
@@ -199,7 +214,7 @@ export function SetupView({
               <div className="field-label">
                 Session {snapshot.state === "completed" ? "Finished" : "Ended"}
               </div>
-              <div className="field-hint">Ran for {formatDurationShort(snapshot.elapsedSecs)}.</div>
+              <div className="field-hint">Ran for {formatDuration(snapshot.elapsedSecs)}.</div>
             </div>
             <div className="list-row-actions">
               <button className="btn btn-secondary btn-sm" onClick={onDismissEndedBanner}>
@@ -236,7 +251,14 @@ export function SetupView({
         <div className="time-panel">
           <div className="time-panel-unit">
             <div className="time-panel-unit-label">Hours</div>
-            <Stepper value={hours} onChange={setHours} min={0} max={MAX_HOURS} />
+            <Stepper
+              value={hours}
+              onChange={setHours}
+              min={0}
+              max={maxHours}
+              label="hours"
+              canIncrement={fits(hours + 1, minutes)}
+            />
           </div>
           <div className="time-panel-sep">:</div>
           <div className="time-panel-unit">
@@ -246,7 +268,8 @@ export function SetupView({
               onChange={setMinutes}
               onIncrement={incrementMinutes}
               onDecrement={decrementMinutes}
-              canIncrement={minutes < 59 || hours < MAX_HOURS}
+              label="minutes"
+              canIncrement={fits(hours, minutes + 1) || (minutes === 59 && fits(hours + 1, 0))}
               canDecrement={minutes > 0 || hours > 0}
             />
           </div>
@@ -277,22 +300,32 @@ export function SetupView({
           onChange={setActivityEnabled}
           disabled={inputUnsupported}
         />
+        {activityOn && capabilities && !capabilities.inputPermissionGranted && (
+          <div className="banner banner-warning">
+            <AlertIcon />
+            <span>Grant Accessibility access in Settings before starting.</span>
+          </div>
+        )}
 
         {inputUnsupported && (
           <div className="banner banner-warning">
             <AlertIcon />
-            <span>Input simulation isn&apos;t available on this system.</span>
+            <span>
+              Activity automation isn&apos;t available on this system. See Platform Notes in
+              Settings.
+            </span>
           </div>
         )}
 
-        {activityEnabled && !inputUnsupported && (
+        {activityOn && (
           <>
             <hr className="divider" />
             <div>
-              <div className="field-label" style={{ marginBottom: 6 }}>
+              <label className="field-label" htmlFor="setup-profile" style={{ marginBottom: 6 }}>
                 Profile
-              </div>
+              </label>
               <select
+                id="setup-profile"
                 className="input"
                 value={profileId}
                 onChange={(e) => selectProfile(e.target.value)}
@@ -304,24 +337,22 @@ export function SetupView({
                 ))}
               </select>
               {selectedProfile && (
-                <div className="field-hint">
-                  {formatDurationShort(selectedProfile.minDelay)}-
-                  {formatDurationShort(selectedProfile.maxDelay)} Random Delay
-                </div>
+                <div className="field-hint">{formatActivityRates(selectedProfile)}</div>
               )}
             </div>
             <div>
-              <div className="field-label" style={{ marginBottom: 6 }}>
+              <label className="field-label" htmlFor="setup-threshold" style={{ marginBottom: 6 }}>
                 Inactivity Threshold
-              </div>
+              </label>
               <select
+                id="setup-threshold"
                 className="input"
                 value={inactivityThreshold}
                 onChange={(e) => setInactivityThreshold(Number(e.target.value))}
               >
                 {INACTIVITY_THRESHOLD_OPTIONS.map((secs) => (
                   <option key={secs} value={secs}>
-                    {formatDurationShort(secs)}
+                    {formatDuration(secs)}
                   </option>
                 ))}
               </select>
@@ -362,6 +393,7 @@ export function SetupView({
               <input
                 className="input"
                 placeholder="Template name"
+                aria-label="Template name"
                 value={newTemplateName}
                 autoFocus
                 onChange={(e) => setNewTemplateName(e.target.value)}

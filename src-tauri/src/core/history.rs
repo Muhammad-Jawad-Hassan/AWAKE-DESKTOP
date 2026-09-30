@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use super::stats::SessionStats;
 
-/// Oldest entries are dropped once history exceeds this, so the config file never grows unbounded.
+/// Oldest entries drop once history exceeds this.
 pub const MAX_HISTORY_ENTRIES: usize = 50;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -13,6 +13,7 @@ pub const MAX_HISTORY_ENTRIES: usize = 50;
 pub struct HistoryEntry {
     pub id: String,
     pub ended_at_unix_secs: u64,
+    /// How long the session actually ran.
     pub duration_secs: u64,
     pub activity_profile_id: Option<String>,
     pub stats: SessionStats,

@@ -2,49 +2,54 @@
 
 use std::sync::Mutex;
 
-use enigo::{
-    Axis, Button as EnigoButton, Coordinate, Direction, Enigo, Key, Keyboard, Mouse, Settings,
-};
+use enigo::{Axis, Coordinate, Direction, Enigo, Key, Keyboard, Mouse, Settings};
 
 use crate::core::ports::{InputSimulator, PlatformError};
-use crate::core::{ClickKind, MouseButton};
 
+/// Created lazily and retried, since macOS refuses it until Accessibility is granted.
 pub struct EnigoInputSimulator {
     enigo: Mutex<Option<Enigo>>,
 }
 
 impl EnigoInputSimulator {
-    /// Returns the simulator plus whether it initialized successfully.
-    pub fn new() -> (Self, bool) {
-        match Enigo::new(&Settings::default()) {
-            Ok(enigo) => (
-                Self {
-                    enigo: Mutex::new(Some(enigo)),
-                },
-                true,
-            ),
-            Err(_) => (
-                Self {
-                    enigo: Mutex::new(None),
-                },
-                false,
-            ),
+    pub fn new() -> Self {
+        Self {
+            enigo: Mutex::new(Enigo::new(&settings()).ok()),
         }
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    pub fn is_available(&self) -> bool {
+        self.with_enigo(|_| Ok(())).is_ok()
     }
 
     fn with_enigo<T>(
         &self,
         f: impl FnOnce(&mut Enigo) -> enigo::InputResult<T>,
     ) -> Result<T, PlatformError> {
-        // Recover from poisoning: one bad call shouldn't disable input for the app's lifetime.
+        // Recover from a poisoned lock.
         let mut guard = self
             .enigo
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let enigo = guard
-            .as_mut()
-            .ok_or_else(|| PlatformError::Unsupported("input simulation unavailable".into()))?;
+        if guard.is_none() {
+            let enigo = Enigo::new(&settings()).map_err(|e| {
+                PlatformError::Unsupported(format!("input simulation unavailable: {e}"))
+            })?;
+            *guard = Some(enigo);
+        }
+        let enigo = guard.as_mut().expect("initialized above");
         f(enigo).map_err(|e| PlatformError::OperationFailed(e.to_string()))
+    }
+}
+
+fn settings() -> Settings {
+    Settings {
+        // We show our own prompt.
+        open_prompt_to_get_permissions: false,
+        // Relative moves, not primary-monitor absolute.
+        windows_subject_to_mouse_speed_and_acceleration_level: true,
+        ..Settings::default()
     }
 }
 
@@ -53,37 +58,10 @@ impl InputSimulator for EnigoInputSimulator {
         self.with_enigo(|e| e.move_mouse(dx, dy, Coordinate::Rel))
     }
 
-    fn click_mouse(&self, button: MouseButton, click: ClickKind) -> Result<(), PlatformError> {
-        let button = match button {
-            MouseButton::Left => EnigoButton::Left,
-            MouseButton::Right => EnigoButton::Right,
-            MouseButton::Middle => EnigoButton::Middle,
-        };
-        self.with_enigo(|e| {
-            press_and_release(e, button)?;
-            if click == ClickKind::Double {
-                press_and_release(e, button)?;
-            }
-            Ok(())
-        })
-    }
-
-    fn key_tap(&self, key: &str, modifiers: &[String]) -> Result<(), PlatformError> {
-        let key = parse_key(key)
-            .ok_or_else(|| PlatformError::OperationFailed(format!("unknown key: {key}")))?;
-        let modifiers: Vec<Key> = modifiers.iter().filter_map(|m| parse_key(m)).collect();
-
-        self.with_enigo(|e| {
-            let press_result = modifiers
-                .iter()
-                .try_for_each(|modifier| e.key(*modifier, Direction::Press));
-            let click_result = press_result.and_then(|()| e.key(key, Direction::Click));
-            // Released even if the press or click failed, so an input error never leaves a modifier stuck down.
-            for modifier in modifiers.iter().rev() {
-                let _ = e.key(*modifier, Direction::Release);
-            }
-            click_result
-        })
+    fn key_tap(&self, key: &str) -> Result<(), PlatformError> {
+        let key = safe_key(key)
+            .ok_or_else(|| PlatformError::OperationFailed(format!("refusing unsafe key: {key}")))?;
+        self.with_enigo(|e| e.key(key, Direction::Click))
     }
 
     fn scroll(&self, dx: i32, dy: i32) -> Result<(), PlatformError> {
@@ -107,75 +85,34 @@ impl InputSimulator for EnigoInputSimulator {
     }
 }
 
-/// Presses then releases a button, always attempting the release even if the
-/// press failed, so a transient error never leaves it stuck held down.
-fn press_and_release(e: &mut Enigo, button: EnigoButton) -> enigo::InputResult<()> {
-    let press = e.button(button, Direction::Press);
-    let release = e.button(button, Direction::Release);
-    press.and(release)
-}
-
-/// Maps a user-facing key name to an `enigo::Key`, case-insensitively.
-fn parse_key(name: &str) -> Option<Key> {
-    let normalized = name.trim();
-    if let Some(key) = named_key(normalized) {
-        return Some(key);
-    }
-    let mut chars = normalized.chars();
-    match (chars.next(), chars.next()) {
-        (Some(c), None) => Some(Key::Unicode(c)),
+/// Maps a safe automation key to an `enigo::Key`. This match is the allowlist.
+fn safe_key(name: &str) -> Option<Key> {
+    match name.trim().to_ascii_lowercase().as_str() {
+        "shift" => Some(Key::Shift),
+        "control" => Some(Key::Control),
         _ => None,
     }
-}
-
-fn named_key(name: &str) -> Option<Key> {
-    let key = match name.to_ascii_lowercase().as_str() {
-        "shift" => Key::Shift,
-        "control" | "ctrl" => Key::Control,
-        "alt" | "option" => Key::Alt,
-        "meta" | "cmd" | "command" | "super" | "win" => Key::Meta,
-        "space" => Key::Space,
-        "return" | "enter" => Key::Return,
-        "tab" => Key::Tab,
-        "escape" | "esc" => Key::Escape,
-        "f1" => Key::F1,
-        "f2" => Key::F2,
-        "f3" => Key::F3,
-        "f4" => Key::F4,
-        "f5" => Key::F5,
-        "f6" => Key::F6,
-        "f7" => Key::F7,
-        "f8" => Key::F8,
-        "f9" => Key::F9,
-        "f10" => Key::F10,
-        "f11" => Key::F11,
-        "f12" => Key::F12,
-        "f13" => Key::F13,
-        "f14" => Key::F14,
-        "f15" => Key::F15,
-        _ => return None,
-    };
-    Some(key)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::profiles::SAFE_AUTOMATION_KEYS;
 
     #[test]
-    fn parses_named_keys_case_insensitively() {
-        assert_eq!(parse_key("Shift"), Some(Key::Shift));
-        assert_eq!(parse_key("SHIFT"), Some(Key::Shift));
-        assert_eq!(parse_key("f15"), Some(Key::F15));
+    fn every_safe_key_maps_case_insensitively() {
+        for key in SAFE_AUTOMATION_KEYS {
+            assert!(safe_key(key).is_some(), "{key}");
+            assert!(safe_key(&key.to_uppercase()).is_some(), "{key}");
+        }
     }
 
     #[test]
-    fn parses_single_character_as_unicode() {
-        assert_eq!(parse_key("a"), Some(Key::Unicode('a')));
-    }
-
-    #[test]
-    fn rejects_unknown_multi_character_input() {
-        assert_eq!(parse_key("not-a-key"), None);
+    fn refuses_anything_outside_the_safe_list() {
+        for key in [
+            "a", "Enter", "Tab", "Alt", "Meta", "F5", "F13", "Random", "",
+        ] {
+            assert_eq!(safe_key(key), None, "{key:?}");
+        }
     }
 }

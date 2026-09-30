@@ -4,10 +4,10 @@ import type {
   ActivityProfile,
   AppSettings,
   HistoryEntry,
+  Limits,
   PlatformCapabilities,
   SessionConfig,
   SessionSnapshot,
-  SessionStats,
   SessionTemplate,
   TestActivityResult,
 } from "./types";
@@ -15,7 +15,8 @@ import type {
 export const commands = {
   getSnapshot: () => invoke<SessionSnapshot>("get_snapshot"),
   getLastSessionConfig: () => invoke<SessionConfig | null>("get_last_session_config"),
-  getSessionStats: () => invoke<SessionStats | null>("get_session_stats"),
+  takeNotices: () => invoke<string[]>("take_notices"),
+  getLimits: () => invoke<Limits>("get_limits"),
   listSessionHistory: () => invoke<HistoryEntry[]>("list_session_history"),
   clearSessionHistory: () => invoke<void>("clear_session_history"),
   startSession: (config: SessionConfig) => invoke<SessionSnapshot>("start_session", { config }),
@@ -25,10 +26,12 @@ export const commands = {
   resumeActivity: () => invoke<SessionSnapshot>("resume_activity"),
   emergencyStop: () => invoke<SessionSnapshot>("emergency_stop"),
   listProfiles: () => invoke<ActivityProfile[]>("list_profiles"),
+  newProfile: () => invoke<ActivityProfile>("new_profile"),
   saveProfile: (profile: ActivityProfile) => invoke<void>("save_profile", { profile }),
   deleteProfile: (id: string) => invoke<void>("delete_profile", { id }),
-  testActivity: (profile: ActivityProfile) =>
-    invoke<TestActivityResult[]>("test_activity", { profile }),
+  testActivity: (profile: ActivityProfile, runId: number) =>
+    invoke<TestActivityResult[]>("test_activity", { profile, runId }),
+  cancelTestActivity: (runId: number) => invoke<void>("cancel_test_activity", { runId }),
   exportProfile: (id: string) => invoke<boolean>("export_profile", { id }),
   importProfile: () => invoke<ActivityProfile | null>("import_profile"),
   listTemplates: () => invoke<SessionTemplate[]>("list_templates"),

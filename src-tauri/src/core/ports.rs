@@ -3,11 +3,9 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::profiles::{ClickKind, MouseButton};
-
 #[derive(Debug, thiserror::Error)]
 pub enum PlatformError {
-    // Only macOS gates input behind a permission, so other targets never build this.
+    // Only constructed on macOS.
     #[allow(dead_code)]
     #[error("operating system permission required: {0}")]
     PermissionDenied(String),
@@ -26,8 +24,7 @@ pub trait PowerLease: Send {
 }
 
 pub trait PowerManager: Send + Sync {
-    /// `max_duration` bounds how long the assertion outlives a crash, so an
-    /// ungraceful exit that skips `Drop` cannot hold sleep off forever.
+    /// `max_duration` lets a lease self-expire if the app dies without `Drop`.
     fn acquire(
         &self,
         keep_system_awake: bool,
@@ -43,8 +40,7 @@ pub trait IdleProvider: Send + Sync {
 
 pub trait InputSimulator: Send + Sync {
     fn move_mouse_relative(&self, dx: i32, dy: i32) -> Result<(), PlatformError>;
-    fn click_mouse(&self, button: MouseButton, click: ClickKind) -> Result<(), PlatformError>;
-    fn key_tap(&self, key: &str, modifiers: &[String]) -> Result<(), PlatformError>;
+    fn key_tap(&self, key: &str) -> Result<(), PlatformError>;
     fn scroll(&self, dx: i32, dy: i32) -> Result<(), PlatformError>;
     fn cursor_position(&self) -> Result<(i32, i32), PlatformError>;
     fn display_size(&self) -> Result<(i32, i32), PlatformError>;
@@ -59,9 +55,6 @@ pub enum WindowHandle {
     #[cfg(target_os = "linux")]
     Linux,
 }
-
-// Sound: used only within a single async command call, never shared across threads.
-unsafe impl Send for WindowHandle {}
 
 pub trait VisibilityManager: Send + Sync {
     fn set_exclude_from_capture(
@@ -78,6 +71,8 @@ pub struct PlatformCapabilities {
     pub power_management: bool,
     pub idle_detection: bool,
     pub input_simulation: bool,
+    /// Live: whether the OS lets us inject input right now (macOS Accessibility).
+    pub input_permission_granted: bool,
     pub screen_capture_exclusion: bool,
     /// Explains any `false` capability above.
     pub notes: Vec<String>,

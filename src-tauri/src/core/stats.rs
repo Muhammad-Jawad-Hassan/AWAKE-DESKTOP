@@ -8,26 +8,29 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionStats {
-    active_secs: u64,
-    inactive_secs: u64,
+    #[serde(with = "super::serde_secs")]
+    active_secs: Duration,
+    #[serde(with = "super::serde_secs")]
+    inactive_secs: Duration,
     automated_event_count: u32,
-    longest_inactive_secs: u64,
-    current_inactive_streak_secs: u64,
+    #[serde(with = "super::serde_secs")]
+    longest_inactive_secs: Duration,
+    #[serde(with = "super::serde_secs")]
+    current_inactive_streak_secs: Duration,
 }
 
 impl SessionStats {
-    /// Call once per tick with the tick length and whether the user was inactive during it.
-    pub fn record_tick(&mut self, tick: Duration, user_inactive: bool) {
-        let secs = tick.as_secs();
+    /// Credits `elapsed` to inactive or active time.
+    pub fn record_tick(&mut self, elapsed: Duration, user_inactive: bool) {
         if user_inactive {
-            self.inactive_secs += secs;
-            self.current_inactive_streak_secs += secs;
+            self.inactive_secs += elapsed;
+            self.current_inactive_streak_secs += elapsed;
             self.longest_inactive_secs = self
                 .longest_inactive_secs
                 .max(self.current_inactive_streak_secs);
         } else {
-            self.active_secs += secs;
-            self.current_inactive_streak_secs = 0;
+            self.active_secs += elapsed;
+            self.current_inactive_streak_secs = Duration::ZERO;
         }
     }
 
@@ -47,8 +50,8 @@ mod tests {
         stats.record_tick(Duration::from_secs(1), false);
         stats.record_tick(Duration::from_secs(1), true);
 
-        assert_eq!(stats.active_secs, 2);
-        assert_eq!(stats.inactive_secs, 1);
+        assert_eq!(stats.active_secs, Duration::from_secs(2));
+        assert_eq!(stats.inactive_secs, Duration::from_secs(1));
     }
 
     #[test]
@@ -59,8 +62,31 @@ mod tests {
         stats.record_tick(Duration::from_secs(1), false); // streak broken
         stats.record_tick(Duration::from_secs(3), true);
 
-        assert_eq!(stats.longest_inactive_secs, 10);
-        assert_eq!(stats.current_inactive_streak_secs, 3);
+        assert_eq!(stats.longest_inactive_secs, Duration::from_secs(10));
+        assert_eq!(stats.current_inactive_streak_secs, Duration::from_secs(3));
+    }
+
+    #[test]
+    fn keeps_sub_second_time_instead_of_truncating_each_tick() {
+        let mut stats = SessionStats::default();
+        for _ in 0..10 {
+            stats.record_tick(Duration::from_millis(1100), false);
+        }
+        assert_eq!(stats.active_secs, Duration::from_secs(11));
+    }
+
+    #[test]
+    fn serializes_durations_as_whole_seconds() {
+        let mut stats = SessionStats::default();
+        stats.record_tick(Duration::from_millis(2500), true);
+        let json = serde_json::to_value(stats).unwrap();
+        assert_eq!(json["inactiveSecs"], 2);
+        assert_eq!(
+            serde_json::from_value::<SessionStats>(json)
+                .unwrap()
+                .inactive_secs,
+            Duration::from_secs(2)
+        );
     }
 
     #[test]

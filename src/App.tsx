@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 
-import { BackIcon, GearIcon, PowerIcon } from "@/components/Icons";
+import { AlertIcon, BackIcon, GearIcon, PowerIcon } from "@/components/Icons";
 import { ActiveView } from "@/pages/ActiveView";
 import { ProfileEditorView } from "@/pages/ProfileEditorView";
 import { SettingsView } from "@/pages/SettingsView";
@@ -12,6 +12,7 @@ import type {
   ActivityProfile,
   AppSettings,
   HistoryEntry,
+  Limits,
   PlatformCapabilities,
   SessionTemplate,
 } from "@/lib/types";
@@ -19,9 +20,13 @@ import type {
 type View = "main" | "settings" | "profile-editor";
 
 export function App() {
-  const snapshot = useSessionSnapshot();
+  const { snapshot, error: snapshotError } = useSessionSnapshot();
   const [view, setView] = useState<View>("main");
   const [editingProfile, setEditingProfile] = useState<ActivityProfile | null>(null);
+  const [isNewProfile, setIsNewProfile] = useState(false);
+  const [limits, setLimits] = useState<Limits | null>(null);
+  const [notices, setNotices] = useState<string[]>([]);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [profiles, setProfiles] = useState<ActivityProfile[]>([]);
   const [templates, setTemplates] = useState<SessionTemplate[]>([]);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
@@ -29,32 +34,51 @@ export function App() {
   const [capabilities, setCapabilities] = useState<PlatformCapabilities | null>(null);
   const [settingsError, setSettingsError] = useState<string | null>(null);
 
-  const refetchProfiles = useCallback(() => {
-    commands.listProfiles().then(setProfiles);
+  const load = useCallback(<T,>(request: Promise<T>, apply: (value: T) => void) => {
+    request.then(apply).catch((err) => setLoadError(`Couldn't load app data: ${String(err)}`));
   }, []);
 
-  const refetchTemplates = useCallback(() => {
-    commands.listTemplates().then(setTemplates);
-  }, []);
-
-  const refetchHistory = useCallback(() => {
-    commands.listSessionHistory().then(setHistory);
-  }, []);
+  const refetchProfiles = useCallback(() => load(commands.listProfiles(), setProfiles), [load]);
+  const refetchTemplates = useCallback(() => load(commands.listTemplates(), setTemplates), [load]);
+  const refetchHistory = useCallback(() => load(commands.listSessionHistory(), setHistory), [load]);
+  const refetchCapabilities = useCallback(
+    () => load(commands.getCapabilities(), setCapabilities),
+    [load],
+  );
 
   useEffect(() => {
     refetchProfiles();
     refetchTemplates();
     refetchHistory();
-    commands.getSettings().then(setSettings);
-    commands.getCapabilities().then(setCapabilities);
+    refetchCapabilities();
+    load(commands.getSettings(), setSettings);
+    load(commands.getLimits(), setLimits);
+    load(commands.takeNotices(), (taken) => setNotices((current) => [...current, ...taken]));
 
+    // Permissions may change in System Settings.
+    window.addEventListener("focus", refetchCapabilities);
     const unlisten = listen<string>("navigate", (event) => {
-      if (event.payload === "settings") setView("settings");
+      // Keep the profile editor draft.
+      if (event.payload === "settings") {
+        setView((current) => (current === "profile-editor" ? current : "settings"));
+      }
     });
     return () => {
+      window.removeEventListener("focus", refetchCapabilities);
       unlisten.then((f) => f());
     };
-  }, [refetchProfiles, refetchTemplates, refetchHistory]);
+  }, [load, refetchProfiles, refetchTemplates, refetchHistory, refetchCapabilities]);
+
+  async function openProfileEditor(profile: ActivityProfile | null) {
+    setSettingsError(null);
+    try {
+      setEditingProfile(profile ?? (await commands.newProfile()));
+      setIsNewProfile(profile === null);
+      setView("profile-editor");
+    } catch (err) {
+      setSettingsError(String(err));
+    }
+  }
 
   async function handleDeleteProfile(id: string) {
     setSettingsError(null);
@@ -142,10 +166,10 @@ export function App() {
         <h1>
           {showBack ? (
             view === "profile-editor" ? (
-              editingProfile ? (
-                "Profile"
-              ) : (
+              isNewProfile ? (
                 "New Profile"
+              ) : (
+                "Profile"
               )
             ) : (
               "Settings"
@@ -162,6 +186,20 @@ export function App() {
         <span style={{ width: 28 }} />
       </div>
 
+      {[...notices, ...[loadError, snapshotError].filter((e): e is string => !!e)].map(
+        (message, i) => (
+          <div
+            key={i}
+            className="banner banner-warning"
+            role="alert"
+            style={{ margin: "8px 12px 0" }}
+          >
+            <AlertIcon />
+            <span>{message}</span>
+          </div>
+        ),
+      )}
+
       {view === "settings" && settings && (
         <SettingsView
           settings={settings}
@@ -171,10 +209,8 @@ export function App() {
           history={history}
           capabilities={capabilities}
           error={settingsError}
-          onEditProfile={(p) => {
-            setEditingProfile(p);
-            setView("profile-editor");
-          }}
+          activeProfileId={snapshot?.state === "active" ? snapshot.activityProfileId : null}
+          onEditProfile={openProfileEditor}
           onDeleteProfile={handleDeleteProfile}
           onImportProfile={handleImportProfile}
           onExportProfile={handleExportProfile}
@@ -183,29 +219,37 @@ export function App() {
         />
       )}
 
-      {view === "profile-editor" && (
-        <ProfileEditorView profile={editingProfile} onDone={closeProfileEditor} />
+      {view === "profile-editor" && editingProfile && limits && (
+        <ProfileEditorView profile={editingProfile} limits={limits} onDone={closeProfileEditor} />
       )}
 
-      {view === "main" &&
-        (!snapshot ? (
-          <div className="view">
-            <p className="muted">Loading…</p>
-          </div>
-        ) : snapshot.state === "active" ? (
-          <ActiveView snapshot={snapshot} profiles={profiles} />
-        ) : (
+      {view === "main" && (!snapshot || !limits) && (
+        <div className="view">
+          <p className="muted">
+            {loadError || snapshotError ? "Awake couldn't start. Try reopening it." : "Loading…"}
+          </p>
+        </div>
+      )}
+
+      {view === "main" && snapshot?.state === "active" && limits && (
+        <ActiveView snapshot={snapshot} profiles={profiles} limits={limits} />
+      )}
+
+      {/* Kept mounted to preserve the form. */}
+      {snapshot && snapshot.state !== "active" && limits && (
+        <div style={{ display: view === "main" ? "contents" : "none" }}>
           <SetupView
             profiles={profiles}
             templates={templates}
             capabilities={capabilities}
+            limits={limits}
             snapshot={snapshot}
             endedBannerDismissed={endedBannerDismissed}
             onDismissEndedBanner={() => setEndedBannerDismissed(true)}
-            onStarted={() => setView("main")}
             onTemplateSaved={refetchTemplates}
           />
-        ))}
+        </div>
+      )}
     </div>
   );
 }

@@ -2,8 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   formatActivityKind,
+  formatActivityRates,
   formatClock,
-  formatDurationShort,
+  formatDuration,
   formatMinSec,
   formatRelative,
 } from "./format";
@@ -49,8 +50,9 @@ describe("formatRelative", () => {
 describe("formatActivityKind", () => {
   it("converts snake_case backend kinds into title case", () => {
     expect(formatActivityKind("mouse_movement")).toBe("Mouse Movement");
-    expect(formatActivityKind("keyboard_input")).toBe("Keyboard Input");
-    expect(formatActivityKind("gesture_horizontal")).toBe("Gesture Horizontal");
+    expect(formatActivityKind("keyboard_input")).toBe("Key Tap");
+    expect(formatActivityKind("gesture_horizontal")).toBe("Horizontal Scroll");
+    expect(formatActivityKind("gesture_vertical")).toBe("Vertical Scroll");
   });
 
   it("handles a single word", () => {
@@ -58,20 +60,23 @@ describe("formatActivityKind", () => {
   });
 });
 
-describe("formatDurationShort", () => {
-  it("prefers hours when evenly divisible", () => {
-    expect(formatDurationShort(3600)).toBe("1h");
-    expect(formatDurationShort(7200)).toBe("2h");
+describe("formatDuration", () => {
+  it("shows whole units without padding", () => {
+    expect(formatDuration(3600)).toBe("1h");
+    expect(formatDuration(60)).toBe("1m");
+    expect(formatDuration(45)).toBe("45s");
   });
 
-  it("prefers minutes when evenly divisible but not by an hour", () => {
-    expect(formatDurationShort(60)).toBe("1m");
-    expect(formatDurationShort(1800)).toBe("30m");
+  it("shows the two most significant units", () => {
+    expect(formatDuration(3597)).toBe("59m 57s");
+    expect(formatDuration(3660)).toBe("1h 1m");
+    expect(formatDuration(3601)).toBe("1h");
+    expect(formatDuration(90)).toBe("1m 30s");
   });
 
-  it("falls back to seconds otherwise", () => {
-    expect(formatDurationShort(45)).toBe("45s");
-    expect(formatDurationShort(90)).toBe("90s");
+  it("shows zero and bad input as 0s", () => {
+    expect(formatDuration(0)).toBe("0s");
+    expect(formatDuration(-5)).toBe("0s");
   });
 });
 
@@ -84,5 +89,36 @@ describe("formatMinSec", () => {
 
   it("handles zero", () => {
     expect(formatMinSec(0)).toBe("0:00");
+  });
+});
+
+describe("formatActivityRates", () => {
+  const base = {
+    id: "p",
+    name: "P",
+    inactivityThreshold: 60,
+    mouse: { enabled: true, perMinute: 2 },
+    keyboard: { enabled: true, key: "Shift", perMinute: 1 },
+    gestures: { horizontal: false, vertical: false, perMinute: 3 },
+    safety: { avoidScreenCornersPx: 24, maxActionsPerMinute: 6 },
+    builtIn: false,
+  };
+
+  it("lists only enabled activities with their rates", () => {
+    expect(formatActivityRates(base)).toBe("Mouse 2/min · Keys 1/min");
+  });
+
+  it("includes scroll when either axis is on", () => {
+    const profile = { ...base, gestures: { ...base.gestures, vertical: true } };
+    expect(formatActivityRates(profile)).toBe("Mouse 2/min · Keys 1/min · Scroll 3/min");
+  });
+
+  it("says so when nothing is enabled", () => {
+    const profile = {
+      ...base,
+      mouse: { ...base.mouse, enabled: false },
+      keyboard: { ...base.keyboard, enabled: false },
+    };
+    expect(formatActivityRates(profile)).toBe("No activity");
   });
 });

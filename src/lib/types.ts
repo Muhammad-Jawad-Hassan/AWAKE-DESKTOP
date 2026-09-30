@@ -1,9 +1,9 @@
-// Mirrors the serde JSON shapes produced by src-tauri/src/core and runtime.rs.
+// Mirrors the Rust serde shapes.
 
 export type SessionState = "idle" | "active" | "completed" | "stopped" | "failed";
 
 export type ActivityKind =
-  "mouse_movement" | "mouse_click" | "keyboard_input" | "gesture_horizontal" | "gesture_vertical";
+  "mouse_movement" | "keyboard_input" | "gesture_horizontal" | "gesture_vertical";
 
 export interface TestActivityProgress {
   kind: ActivityKind;
@@ -38,30 +38,25 @@ export interface SessionSnapshot {
   activityPaused: boolean;
   lastActivity: ActivityKind | null;
   lastActivitySecsAgo: number | null;
+  activityWarning: string | null;
+  stats: SessionStats | null;
 }
-
-export type MouseButtonName = "left" | "right" | "middle";
-export type ClickKind = "single" | "double";
 
 export interface MouseConfig {
   enabled: boolean;
-  movement: boolean;
-  button: MouseButtonName;
-  click: ClickKind;
-  randomize: boolean;
+  perMinute: number;
 }
 
 export interface KeyboardConfig {
   enabled: boolean;
   key: string;
-  modifiers: string[];
-  randomize: boolean;
+  perMinute: number;
 }
 
 export interface GestureConfig {
   horizontal: boolean;
   vertical: boolean;
-  custom: string | null;
+  perMinute: number;
 }
 
 export interface SafetySettings {
@@ -73,8 +68,6 @@ export interface ActivityProfile {
   id: string;
   name: string;
   inactivityThreshold: number;
-  minDelay: number;
-  maxDelay: number;
   mouse: MouseConfig;
   keyboard: KeyboardConfig;
   gestures: GestureConfig;
@@ -114,11 +107,20 @@ export interface HistoryEntry {
   stats: SessionStats;
 }
 
+export interface Limits {
+  safeKeys: string[];
+  randomKey: string;
+  maxPerMinute: number;
+  maxSafetyCap: number;
+  maxSessionSecs: number;
+}
+
 export interface PlatformCapabilities {
   os: string;
   powerManagement: boolean;
   idleDetection: boolean;
   inputSimulation: boolean;
+  inputPermissionGranted: boolean;
   screenCaptureExclusion: boolean;
   notes: string[];
 }

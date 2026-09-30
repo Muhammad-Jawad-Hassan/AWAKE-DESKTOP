@@ -15,7 +15,7 @@ export function ToggleRow({ label, hint, checked, disabled, onChange }: ToggleRo
         <div className="field-label">{label}</div>
         {hint && <div className="field-hint">{hint}</div>}
       </div>
-      <Toggle checked={checked} onChange={onChange} disabled={disabled} />
+      <Toggle checked={checked} onChange={onChange} disabled={disabled} label={label} />
     </div>
   );
 }

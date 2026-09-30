@@ -12,7 +12,8 @@ use super::input::EnigoInputSimulator;
 use super::Platform;
 
 pub fn build() -> Platform {
-    let (input, input_ok) = EnigoInputSimulator::new();
+    let input = EnigoInputSimulator::new();
+    let input_ok = input.is_available();
     let mut notes = Vec::new();
     if !input_ok {
         notes.push("Failed to initialize input simulation.".to_string());
@@ -28,8 +29,10 @@ pub fn build() -> Platform {
             power_management: true,
             idle_detection: true,
             input_simulation: input_ok,
+            input_permission_granted: true,
             screen_capture_exclusion: true,
             notes,
         },
+        input_permission_granted: super::always_granted,
     }
 }

@@ -16,6 +16,12 @@ impl IdleProvider for LinuxIdleProvider {
         let output = Command::new("xprintidle").output().map_err(|e| {
             PlatformError::OperationFailed(format!("failed to run xprintidle: {e}"))
         })?;
+        if !output.status.success() {
+            return Err(PlatformError::OperationFailed(format!(
+                "xprintidle failed: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            )));
+        }
         let text = String::from_utf8_lossy(&output.stdout);
         let idle_ms: u64 = text
             .trim()

@@ -1,11 +1,11 @@
-//! Local configuration persistence: a single JSON file written atomically
-//! to the OS-standard app-config directory.
+//! Local configuration persistence: one JSON file in the OS app-config directory.
 
-use std::fs;
-use std::io;
+use std::fs::{self, File};
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, Serializer};
 
 use super::history::HistoryEntry;
 use super::profiles::{built_in_profiles, ActivityProfile};
@@ -13,6 +13,12 @@ use super::session::SessionConfig;
 use super::templates::SessionTemplate;
 
 pub const CONFIG_FILE_NAME: &str = "config.json";
+
+/// Ctrl+Shift+Esc is Task Manager on Windows, so other platforms add Alt.
+#[cfg(target_os = "macos")]
+const DEFAULT_EMERGENCY_SHORTCUT: &str = "Super+Shift+Escape";
+#[cfg(not(target_os = "macos"))]
+const DEFAULT_EMERGENCY_SHORTCUT: &str = "Control+Alt+Shift+Escape";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -36,7 +42,7 @@ impl Default for AppSettings {
             close_to_tray: true,
             exclude_from_screen_capture: false,
             notify_on_session_end: true,
-            emergency_stop_shortcut: "CommandOrControl+Shift+Escape".to_string(),
+            emergency_stop_shortcut: DEFAULT_EMERGENCY_SHORTCUT.to_string(),
             record_activity_statistics: false,
         }
     }
@@ -48,7 +54,8 @@ pub struct AppConfig {
     pub schema_version: u32,
     #[serde(default)]
     pub settings: AppSettings,
-    #[serde(default = "built_in_profiles")]
+    /// Built-ins first, then custom profiles; only custom ones are stored.
+    #[serde(default, serialize_with = "serialize_custom_profiles")]
     pub profiles: Vec<ActivityProfile>,
     #[serde(default)]
     pub last_session_config: Option<SessionConfig>,
@@ -60,6 +67,13 @@ pub struct AppConfig {
 
 fn current_schema_version() -> u32 {
     1
+}
+
+fn serialize_custom_profiles<S: Serializer>(
+    profiles: &[ActivityProfile],
+    s: S,
+) -> Result<S::Ok, S::Error> {
+    s.collect_seq(profiles.iter().filter(|p| !p.built_in))
 }
 
 impl Default for AppConfig {
@@ -87,22 +101,69 @@ impl AppConfig {
     /// Loads `dir/config.json`; a missing file yields defaults, a corrupt one errors.
     pub fn load(dir: &Path) -> Result<Self, ConfigError> {
         let path = dir.join(CONFIG_FILE_NAME);
-        match fs::read_to_string(&path) {
-            Ok(contents) => Ok(serde_json::from_str(&contents)?),
-            Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(Self::default()),
-            Err(err) => Err(err.into()),
+        let mut config: Self = match fs::read_to_string(&path) {
+            Ok(contents) => serde_json::from_str(&contents)?,
+            Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(Self::default()),
+            Err(err) => return Err(err.into()),
+        };
+        config.adopt_current_profiles();
+        Ok(config)
+    }
+
+    /// Loads the config, moving an unreadable file aside instead of losing it.
+    /// Returns a user-facing warning when that happened.
+    pub fn load_or_recover(dir: &Path) -> (Self, Option<String>) {
+        match Self::load(dir) {
+            Ok(config) => (config, None),
+            Err(err) => {
+                let path = dir.join(CONFIG_FILE_NAME);
+                let stamp = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map_or(0, |d| d.as_secs());
+                let backup = dir.join(format!("config.corrupt-{stamp}.json"));
+                let warning = match fs::rename(&path, &backup) {
+                    Ok(()) => format!(
+                        "Your settings couldn't be read ({err}), so Awake started with defaults. \
+                         The old file was saved as {}.",
+                        backup.display()
+                    ),
+                    Err(_) => format!(
+                        "Your settings couldn't be read ({err}), so Awake started with defaults."
+                    ),
+                };
+                tracing::error!("{warning}");
+                (Self::default(), Some(warning))
+            }
         }
     }
 
-    /// Writes `dir/config.json` atomically via a temp file + rename.
+    /// Replaces stored built-ins with the current ones and repairs legacy custom profiles.
+    fn adopt_current_profiles(&mut self) {
+        let built_ins = built_in_profiles();
+        self.profiles
+            .retain(|p| !p.built_in && built_ins.iter().all(|b| b.id != p.id));
+        for profile in &mut self.profiles {
+            profile.migrate();
+        }
+        self.profiles.splice(0..0, built_ins);
+    }
+
+    /// Writes `dir/config.json` durably via a synced temp file and rename.
     pub fn save(&self, dir: &Path) -> Result<(), ConfigError> {
         fs::create_dir_all(dir)?;
         let path = dir.join(CONFIG_FILE_NAME);
         let tmp_path = tmp_path_for(&path);
 
         let contents = serde_json::to_string_pretty(self)?;
-        fs::write(&tmp_path, contents)?;
+        let mut file = File::create(&tmp_path)?;
+        file.write_all(contents.as_bytes())?;
+        file.sync_all()?;
         fs::rename(&tmp_path, &path)?;
+        // Already saved; only log this.
+        #[cfg(unix)]
+        if let Err(err) = File::open(dir).and_then(|d| d.sync_all()) {
+            tracing::warn!("couldn't sync config directory: {err}");
+        }
         Ok(())
     }
 }
@@ -146,6 +207,69 @@ mod tests {
 
         let result = AppConfig::load(dir.path());
         assert!(matches!(result, Err(ConfigError::Corrupt(_))));
+    }
+
+    #[test]
+    fn a_corrupt_file_is_moved_aside_with_a_warning() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join(CONFIG_FILE_NAME), "{ not valid json").unwrap();
+
+        let (config, warning) = AppConfig::load_or_recover(dir.path());
+
+        assert_eq!(config, AppConfig::default());
+        assert!(warning.is_some());
+        assert!(!dir.path().join(CONFIG_FILE_NAME).exists());
+        let kept: Vec<_> = fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| {
+                e.file_name()
+                    .to_string_lossy()
+                    .starts_with("config.corrupt-")
+            })
+            .collect();
+        assert_eq!(kept.len(), 1);
+        assert_eq!(
+            fs::read_to_string(kept[0].path()).unwrap(),
+            "{ not valid json"
+        );
+    }
+
+    #[test]
+    fn only_custom_profiles_are_stored() {
+        let dir = tempdir().unwrap();
+        let mut config = AppConfig::default();
+        config
+            .profiles
+            .push(ActivityProfile::new_custom("custom-1".to_string()));
+        config.save(dir.path()).unwrap();
+
+        let raw: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(dir.path().join(CONFIG_FILE_NAME)).unwrap())
+                .unwrap();
+        let stored = raw["profiles"].as_array().unwrap();
+        assert_eq!(stored.len(), 1);
+        assert_eq!(stored[0]["id"], "custom-1");
+    }
+
+    #[test]
+    fn stale_stored_built_ins_are_replaced_and_customs_migrated() {
+        let dir = tempdir().unwrap();
+        let mut stale = built_in_profiles().remove(2);
+        stale.gestures.per_minute = 1;
+        let mut legacy = ActivityProfile::new_custom("custom-1".to_string());
+        legacy.keyboard.key = "A".to_string();
+        let json = serde_json::json!({ "profiles": [stale, legacy] });
+        fs::write(dir.path().join(CONFIG_FILE_NAME), json.to_string()).unwrap();
+
+        let config = AppConfig::load(dir.path()).unwrap();
+
+        assert_eq!(config.profiles[..3], built_in_profiles()[..]);
+        assert_eq!(config.profiles.len(), 4);
+        assert_eq!(
+            config.profiles[3].keyboard.key,
+            crate::core::profiles::DEFAULT_KEY
+        );
     }
 
     #[test]

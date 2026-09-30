@@ -1,5 +1,6 @@
 //! Application entry point: wires plugins, managed state, tray and commands.
 
+mod automation;
 mod commands;
 mod core;
 mod platform;
@@ -48,7 +49,7 @@ pub fn run() {
             let platform = platform::current();
             let state = AppState::new(platform, config_dir);
 
-            // Window starts visible (tauri.conf.json); hide it synchronously here so a failed read never leaves it invisible-forever.
+            // Hide before first paint.
             if state.settings_blocking().is_some_and(|s| s.start_minimized) {
                 if let Some(window) = handle.get_webview_window("main") {
                     let _ = window.hide();
@@ -63,10 +64,14 @@ pub fn run() {
             let app_handle = handle.clone();
             tauri::async_runtime::spawn(async move {
                 let settings = state.settings().await;
-                shortcuts::reregister_emergency_stop(
+                if let Err(err) = shortcuts::register_emergency_stop(
                     &app_handle,
                     &settings.emergency_stop_shortcut,
-                );
+                ) {
+                    state.push_notice(format!(
+                        "The emergency-stop shortcut isn't active: {err}. Pick another in Settings."
+                    ));
+                }
                 commands::apply_screen_capture_exclusion(
                     &app_handle,
                     &state,
@@ -96,7 +101,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::get_snapshot,
             commands::get_last_session_config,
-            commands::get_session_stats,
+            commands::take_notices,
             commands::list_session_history,
             commands::clear_session_history,
             commands::start_session,
@@ -106,11 +111,14 @@ pub fn run() {
             commands::resume_activity,
             commands::emergency_stop,
             commands::list_profiles,
+            commands::get_limits,
+            commands::new_profile,
             commands::save_profile,
             commands::delete_profile,
             commands::export_profile,
             commands::import_profile,
             commands::test_activity,
+            commands::cancel_test_activity,
             commands::list_templates,
             commands::save_template,
             commands::delete_template,
@@ -122,10 +130,27 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building the Awake application")
         .run(|app_handle, event| {
-            if matches!(event, RunEvent::Exit) {
-                if let Some(state) = app_handle.try_state::<Arc<AppState>>() {
-                    state.release_power_lease_blocking();
+            let Some(state) = app_handle.try_state::<Arc<AppState>>() else {
+                return;
+            };
+            match event {
+                // Finish the session before exiting.
+                RunEvent::ExitRequested { api, code, .. } if !state.is_shut_down() => {
+                    if code == Some(tauri::RESTART_EXIT_CODE) {
+                        tauri::async_runtime::block_on(state.shutdown());
+                        return;
+                    }
+                    api.prevent_exit();
+                    let state = state.inner().clone();
+                    let app = app_handle.clone();
+                    tauri::async_runtime::spawn(async move {
+                        state.shutdown().await;
+                        app.exit(code.unwrap_or(0));
+                    });
                 }
+                // Cmd+Q and logoff skip ExitRequested.
+                RunEvent::Exit => tauri::async_runtime::block_on(state.shutdown()),
+                _ => {}
             }
         });
 }

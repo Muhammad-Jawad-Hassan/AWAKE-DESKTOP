@@ -105,8 +105,7 @@ fn handle_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
             let app = app.clone();
             tauri::async_runtime::spawn(async move {
                 let state = app.state::<Arc<AppState>>().inner().clone();
-                let paused = state.snapshot().await.activity_paused;
-                let snapshot = state.set_activity_paused(!paused).await;
+                let snapshot = state.toggle_activity_paused().await;
                 broadcast_snapshot(&app, &snapshot);
             });
         }

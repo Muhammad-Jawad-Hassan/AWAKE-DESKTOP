@@ -36,14 +36,14 @@ impl SessionTimer {
     }
 }
 
-/// Rejects zero-length sessions and sessions longer than 24 hours.
-pub fn validate_duration(duration: Duration) -> Result<(), DurationError> {
-    const MAX_DURATION: Duration = Duration::from_secs(24 * 60 * 60);
+pub const MAX_SESSION_DURATION: Duration = Duration::from_secs(24 * 60 * 60);
 
+/// Rejects zero-length sessions and sessions longer than `MAX_SESSION_DURATION`.
+pub fn validate_duration(duration: Duration) -> Result<(), DurationError> {
     if duration.is_zero() {
         Err(DurationError::TooShort)
-    } else if duration > MAX_DURATION {
-        Err(DurationError::TooLong { max: MAX_DURATION })
+    } else if duration > MAX_SESSION_DURATION {
+        Err(DurationError::TooLong)
     } else {
         Ok(())
     }
@@ -53,8 +53,8 @@ pub fn validate_duration(duration: Duration) -> Result<(), DurationError> {
 pub enum DurationError {
     #[error("session duration must be greater than zero")]
     TooShort,
-    #[error("session duration must not exceed {max:?}")]
-    TooLong { max: Duration },
+    #[error("session duration must not exceed {} hours", MAX_SESSION_DURATION.as_secs() / 3600)]
+    TooLong,
 }
 
 #[cfg(test)]

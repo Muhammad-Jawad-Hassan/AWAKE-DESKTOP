@@ -17,14 +17,7 @@ use permission_checked_input::PermissionCheckedInputSimulator;
 pub use permissions::{is_accessibility_trusted, open_accessibility_settings};
 
 pub fn build() -> Platform {
-    let (input, input_ok) = EnigoInputSimulator::new();
-    let mut notes = Vec::new();
-    if !input_ok {
-        notes.push("Failed to initialize input simulation.".to_string());
-    }
-    if !is_accessibility_trusted() {
-        notes.push("Accessibility permission required for mouse/keyboard automation.".to_string());
-    }
+    let input = EnigoInputSimulator::new();
 
     Platform {
         power: Arc::new(power::MacOsPowerManager),
@@ -35,9 +28,12 @@ pub fn build() -> Platform {
             os: "macos".to_string(),
             power_management: true,
             idle_detection: true,
-            input_simulation: input_ok,
+            // Gated per call by Accessibility.
+            input_simulation: true,
+            input_permission_granted: is_accessibility_trusted(),
             screen_capture_exclusion: true,
-            notes,
+            notes: Vec::new(),
         },
+        input_permission_granted: is_accessibility_trusted,
     }
 }

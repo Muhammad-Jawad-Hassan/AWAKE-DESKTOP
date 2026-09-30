@@ -1,55 +1,11 @@
 import { useEffect, useState } from "react";
 
-const MODIFIER_LABELS: Record<string, string> = {
-  commandorcontrol: "Ctrl",
-  cmdorctrl: "Ctrl",
-  command: "Cmd",
-  cmd: "Cmd",
-  control: "Ctrl",
-  ctrl: "Ctrl",
-  alt: "Alt",
-  option: "Alt",
-  shift: "Shift",
-  super: "Super",
-  meta: "Meta",
-};
+import { shortcutFromEvent, shortcutPartLabel } from "@/lib/shortcut";
 
-const KEY_LABELS: Record<string, string> = {
-  escape: "Esc",
-  enter: "Enter",
-  return: "Enter",
-  space: "Space",
-  tab: "Tab",
-  backspace: "Backspace",
-  delete: "Delete",
-  up: "↑",
-  down: "↓",
-  left: "←",
-  right: "→",
-};
+const IS_MAC = navigator.userAgent.includes("Mac");
 
-function partLabel(part: string): string {
-  const lower = part.toLowerCase();
-  return (
-    MODIFIER_LABELS[lower] ?? KEY_LABELS[lower] ?? (part.length === 1 ? part.toUpperCase() : part)
-  );
-}
-
-function normalizeKey(key: string): string | null {
-  if (key.length === 1) return key.toUpperCase();
-  const map: Record<string, string> = {
-    Escape: "Escape",
-    Enter: "Return",
-    " ": "Space",
-    Tab: "Tab",
-    Backspace: "Backspace",
-    Delete: "Delete",
-    ArrowUp: "Up",
-    ArrowDown: "Down",
-    ArrowLeft: "Left",
-    ArrowRight: "Right",
-  };
-  return map[key] ?? (/^F\d{1,2}$/.test(key) ? key : null);
+interface KeyboardLayoutApi {
+  keyboard?: { getLayoutMap?: () => Promise<ReadonlyMap<string, string>> };
 }
 
 interface ShortcutRecorderProps {
@@ -59,6 +15,14 @@ interface ShortcutRecorderProps {
 
 export function ShortcutRecorder({ value, onChange }: ShortcutRecorderProps) {
   const [recording, setRecording] = useState(false);
+  const [layout, setLayout] = useState<ReadonlyMap<string, string>>();
+
+  useEffect(() => {
+    (navigator as KeyboardLayoutApi).keyboard
+      ?.getLayoutMap?.()
+      .then(setLayout)
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (!recording) return;
@@ -66,24 +30,14 @@ export function ShortcutRecorder({ value, onChange }: ShortcutRecorderProps) {
     function handleKeyDown(e: KeyboardEvent) {
       e.preventDefault();
       e.stopPropagation();
-
-      if (e.key === "Escape" && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
+      const bare = !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey;
+      if (e.code === "Escape" && bare) {
         setRecording(false);
         return;
       }
-      if (["Control", "Shift", "Alt", "Meta"].includes(e.key)) return;
-
-      const key = normalizeKey(e.key);
-      if (!key) return;
-
-      const parts: string[] = [];
-      if (e.metaKey || e.ctrlKey) parts.push("CommandOrControl");
-      if (e.shiftKey) parts.push("Shift");
-      if (e.altKey) parts.push("Alt");
-      parts.push(key);
-
-      if (parts.length < 2) return;
-      onChange(parts.join("+"));
+      const shortcut = shortcutFromEvent(e);
+      if (!shortcut) return;
+      onChange(shortcut);
       setRecording(false);
     }
 
@@ -97,18 +51,22 @@ export function ShortcutRecorder({ value, onChange }: ShortcutRecorderProps) {
     <button
       type="button"
       className={`shortcut-recorder ${recording ? "shortcut-recorder-active" : ""}`}
+      aria-label="Emergency stop shortcut"
       onClick={() => setRecording(true)}
       onBlur={() => setRecording(false)}
     >
       {recording ? (
-        <span className="shortcut-recorder-hint">Press a key combination… (Esc to cancel)</span>
+        <span className="shortcut-recorder-hint">
+          Press a combination with {IS_MAC ? "Cmd, Ctrl or Option" : "Ctrl, Win or Alt"}… (Esc to
+          cancel)
+        </span>
       ) : parts.length === 0 ? (
         <span className="shortcut-recorder-hint">Click to set a shortcut</span>
       ) : (
         parts.map((part, i) => (
           <span className="key-badge-group" key={`${part}-${i}`}>
             {i > 0 && <span className="key-plus">+</span>}
-            <kbd className="key-badge">{partLabel(part)}</kbd>
+            <kbd className="key-badge">{shortcutPartLabel(part, IS_MAC, layout)}</kbd>
           </span>
         ))
       )}

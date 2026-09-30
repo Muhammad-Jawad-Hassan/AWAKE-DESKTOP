@@ -24,6 +24,25 @@ pub struct Platform {
     pub input: Arc<dyn InputSimulator>,
     pub visibility: Arc<dyn VisibilityManager>,
     pub capabilities: PlatformCapabilities,
+    pub input_permission_granted: fn() -> bool,
+}
+
+impl Platform {
+    /// Capabilities with the input permission read fresh.
+    pub fn current_capabilities(&self) -> PlatformCapabilities {
+        let mut caps = self.capabilities.clone();
+        caps.input_permission_granted = (self.input_permission_granted)();
+        if !caps.input_permission_granted {
+            caps.notes
+                .push("Accessibility permission required for mouse/keyboard automation.".into());
+        }
+        caps
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn always_granted() -> bool {
+    true
 }
 
 /// Builds the platform implementation for the OS this binary was compiled for.

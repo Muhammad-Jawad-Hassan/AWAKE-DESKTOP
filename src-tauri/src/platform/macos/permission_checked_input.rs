@@ -2,7 +2,6 @@
 //! Accessibility access hasn't been granted, instead of a vague OS error.
 
 use crate::core::ports::{InputSimulator, PlatformError};
-use crate::core::{ClickKind, MouseButton};
 
 use super::permissions::is_accessibility_trusted;
 
@@ -32,14 +31,9 @@ impl<T: InputSimulator> InputSimulator for PermissionCheckedInputSimulator<T> {
         self.inner.move_mouse_relative(dx, dy)
     }
 
-    fn click_mouse(&self, button: MouseButton, click: ClickKind) -> Result<(), PlatformError> {
+    fn key_tap(&self, key: &str) -> Result<(), PlatformError> {
         self.check()?;
-        self.inner.click_mouse(button, click)
-    }
-
-    fn key_tap(&self, key: &str, modifiers: &[String]) -> Result<(), PlatformError> {
-        self.check()?;
-        self.inner.key_tap(key, modifiers)
+        self.inner.key_tap(key)
     }
 
     fn scroll(&self, dx: i32, dy: i32) -> Result<(), PlatformError> {
